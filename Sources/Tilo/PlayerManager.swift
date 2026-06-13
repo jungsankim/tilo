@@ -3,6 +3,17 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+func timeString(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+    let total = Int(seconds.rounded())
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let secs = total % 60
+    return hours > 0
+        ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+        : String(format: "%d:%02d", minutes, secs)
+}
+
 /// 전역 진행률을 별도 모델로 분리해서, 0.25초마다 그리드 전체가 아니라
 /// 이 모델을 구독하는 슬라이더만 다시 그려지게 한다
 final class PlaybackProgress: ObservableObject {
@@ -11,7 +22,10 @@ final class PlaybackProgress: ObservableObject {
 
 final class VideoItem: Identifiable, ObservableObject {
     let id = UUID()
+    /// 실제 재생 URL (MKV 변환본일 수 있음)
     let url: URL
+    /// 원본 파일 — 표시 이름, 자막 탐색, 중복 판정에 쓴다
+    let sourceURL: URL
     let player: AVPlayer
 
     /// 사용자가 설정한 음소거 (솔로가 켜져 있으면 솔로가 우선한다)
@@ -25,8 +39,19 @@ final class VideoItem: Identifiable, ObservableObject {
 
     /// 이 영상의 개별 재생 진행률 (0...1)
     @Published var progress: Double = 0
+    /// 코덱 미지원 등으로 재생에 실패하면 셀에 안내를 띄운다
+    @Published var loadFailed = false
+    /// 현재 시각에 표시할 자막 (외부 .srt/.smi)
+    @Published var currentSubtitle: String?
     var isScrubbing = false
     var loopEnabled = true
+
+    var subtitlesEnabled = true {
+        didSet {
+            applyEmbeddedSubtitles()
+            if !subtitlesEnabled { currentSubtitle = nil }
+        }
+    }
 
     /// 시크바가 보이는 동안만 진행률을 발행해서 불필요한 뷰 갱신을 줄인다
     var progressActive = false {
@@ -35,17 +60,23 @@ final class VideoItem: Identifiable, ObservableObject {
 
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var statusCancellable: AnyCancellable?
     private var appliedResolutionCap: CGSize = .zero
+    private var subtitleCues: [SubtitleCue] = []
+    private var legibleGroup: AVMediaSelectionGroup?
 
-    init(url: URL) {
+    init(url: URL, sourceURL: URL? = nil) {
         self.url = url
+        self.sourceURL = sourceURL ?? url
         self.player = AVPlayer(url: url)
         player.actionAtItemEnd = .pause
         loadAspect()
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self, self.progressActive, !self.isScrubbing else { return }
+            guard let self else { return }
+            self.updateSubtitle(at: time.seconds)
+            guard self.progressActive, !self.isScrubbing else { return }
             guard let duration = self.player.currentItem?.duration.seconds,
                   duration.isFinite, duration > 0 else { return }
             self.progress = min(time.seconds / duration, 1)
@@ -59,6 +90,12 @@ final class VideoItem: Identifiable, ObservableObject {
             self.player.seek(to: .zero)
             self.player.play()
         }
+        statusCancellable = player.currentItem?.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                if status == .failed { self?.loadFailed = true }
+            }
+        loadSubtitles()
     }
 
     deinit {
@@ -66,11 +103,19 @@ final class VideoItem: Identifiable, ObservableObject {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
     }
 
-    func seek(to fraction: Double) {
+    var durationSeconds: Double {
         guard let duration = player.currentItem?.duration.seconds,
-              duration.isFinite, duration > 0 else { return }
+              duration.isFinite, duration > 0 else { return 0 }
+        return duration
+    }
+
+    func seek(to fraction: Double) {
+        let duration = durationSeconds
+        guard duration > 0 else { return }
         let time = CMTime(seconds: fraction * duration, preferredTimescale: 600)
-        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        // 스크럽 중에는 키프레임 단위로 빠르게, 끝나면 정밀하게 이동한다
+        let tolerance: CMTime = isScrubbing ? .positiveInfinity : .zero
+        player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance)
         progress = fraction
     }
 
@@ -78,6 +123,56 @@ final class VideoItem: Identifiable, ObservableObject {
         guard let duration = player.currentItem?.duration.seconds,
               duration.isFinite, duration > 0 else { return }
         progress = min(player.currentTime().seconds / duration, 1)
+    }
+
+    // MARK: - 자막
+
+    private func loadSubtitles() {
+        // 자막은 원본 파일 옆에서 찾는다 (movie.mkv → movie.smi)
+        let videoURL = sourceURL
+        Task { [weak self] in
+            let cues = SubtitleLoader.load(for: videoURL)
+            let group = try? await self?.player.currentItem?.asset
+                .loadMediaSelectionGroup(for: .legible)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.subtitleCues = cues
+                self.legibleGroup = group ?? nil
+                self.applyEmbeddedSubtitles()
+            }
+        }
+    }
+
+    /// 외부 자막 파일이 없을 때만 영상에 내장된 자막 트랙을 켠다
+    private func applyEmbeddedSubtitles() {
+        guard let group = legibleGroup, let currentItem = player.currentItem else { return }
+        if subtitlesEnabled, subtitleCues.isEmpty {
+            currentItem.select(group.options.first ?? group.defaultOption, in: group)
+        } else if group.allowsEmptySelection {
+            currentItem.select(nil, in: group)
+        }
+    }
+
+    private func updateSubtitle(at seconds: Double) {
+        guard subtitlesEnabled, !subtitleCues.isEmpty else { return }
+        let text = cueText(at: seconds)
+        if text != currentSubtitle { currentSubtitle = text }
+    }
+
+    private func cueText(at time: Double) -> String? {
+        // start <= time 인 마지막 큐를 이진 탐색으로 찾고,
+        // 겹치는 큐를 대비해 근처 몇 개만 거슬러 확인한다
+        var low = 0
+        var high = subtitleCues.count
+        while low < high {
+            let mid = (low + high) / 2
+            if subtitleCues[mid].start <= time { low = mid + 1 } else { high = mid }
+        }
+        for index in stride(from: low - 1, through: max(0, low - 4), by: -1) {
+            let cue = subtitleCues[index]
+            if cue.start <= time, time < cue.end { return cue.text }
+        }
+        return nil
     }
 
     /// 타일 크기에 맞춰 디코딩 해상도를 제한한다. 작은 타일에 4K를 통째로
@@ -94,6 +189,10 @@ final class VideoItem: Identifiable, ObservableObject {
     private func loadAspect() {
         Task { @MainActor in
             let asset = AVURLAsset(url: url)
+            // 컨테이너 미지원(MKV 등)을 재생 시도 전에 미리 감지한다
+            if let playable = try? await asset.load(.isPlayable), !playable {
+                loadFailed = true
+            }
             guard let track = try? await asset.loadTracks(withMediaType: .video).first,
                   let (size, transform) = try? await track.load(.naturalSize, .preferredTransform)
             else { return }
@@ -105,16 +204,28 @@ final class VideoItem: Identifiable, ObservableObject {
     }
 }
 
+struct PlaylistEntry: Identifiable, Equatable {
+    let url: URL
+    var id: URL { url }
+    var name: String { url.deletingPathExtension().lastPathComponent }
+}
+
 final class PlayerManager: ObservableObject {
+    /// Finder "다음으로 열기" 등 AppDelegate 경로에서도 같은 인스턴스를 쓴다
+    static let shared = PlayerManager()
+
     @Published var items: [VideoItem] = []
+    /// 재생목록. 영상을 추가하면 같은 폴더의 영상들이 자동으로 들어온다.
+    @Published var playlist: [PlaylistEntry] = []
     @Published var isPlaying = false
     /// 최장 영상 길이를 기준으로 한 전체 진행률 (0...1)
     let progressModel = PlaybackProgress()
     var progress: Double { progressModel.fraction }
     var isScrubbing = false
 
-    /// 영상이 끝나면 처음부터 다시 재생 (영상별로 각자 루프)
-    @Published var loopEnabled = true {
+    /// 영상이 끝나면 처음부터 다시 재생 (영상별로 각자 루프).
+    /// 기본값은 환경설정의 "반복재생 기본 켜기"를 따른다.
+    @Published var loopEnabled = UserDefaults.standard.object(forKey: "loopDefault") as? Bool ?? true {
         didSet { items.forEach { $0.loopEnabled = loopEnabled } }
     }
 
@@ -123,12 +234,69 @@ final class PlayerManager: ObservableObject {
         didSet { applyAudio() }
     }
 
+    /// 자막 표시 (외부 .srt/.smi + 내장 자막 트랙)
+    @Published var subtitlesEnabled = true {
+        didSet { items.forEach { $0.subtitlesEnabled = subtitlesEnabled } }
+    }
+
+    /// A-B 구간반복 지점 (전역 진행률 분수). 둘 다 설정되면 활성.
+    @Published var abA: Double?
+    @Published var abB: Double?
+
+    /// MP4로 변환 중인 파일들 (이름 → 진행률 %)
+    @Published var remuxing: [String: Int] = [:]
+    /// 일시적으로 띄우는 안내 메시지 (몇 초 후 자동 소멸)
+    @Published var notice: String?
+    private var noticeTask: Task<Void, Never>?
+
+    func showNotice(_ text: String) {
+        notice = text
+        noticeTask?.cancel()
+        noticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    /// 드래그로 맞바꾼 자리 (자동 배치 위에 적용되는 순열: 내 id → 내가 차지할 자리의 id)
+    @Published var rectSwaps: [UUID: UUID] = [:]
+    /// 현재 드래그 중인 영상 (드롭 대상 셀이 읽는다)
+    var draggingItemID: UUID?
+
+    /// 두 영상의 표시 위치를 맞바꾼다
+    func swapPositions(_ first: UUID, _ second: UUID) {
+        guard first != second else { return }
+        let sourceFirst = rectSwaps[first] ?? first
+        let sourceSecond = rectSwaps[second] ?? second
+        rectSwaps[first] = sourceSecond == first ? nil : sourceSecond
+        rectSwaps[second] = sourceFirst == second ? nil : sourceFirst
+    }
+
+    /// R 키 한 번 = A 지점, 두 번 = B 지점 + 반복 시작, 세 번 = 해제
+    func cycleABLoop() {
+        if abA == nil {
+            abA = progress
+        } else if abB == nil {
+            if progress > (abA ?? 0) + 0.005 {
+                abB = progress
+            } else {
+                abA = nil
+            }
+        } else {
+            abA = nil
+            abB = nil
+        }
+    }
+
     /// 더블클릭 확대로 단독 표시 중인 영상
     @Published var zoomedItemID: UUID?
 
     private var timeObserver: Any?
     private var observedPlayer: AVPlayer?
     private var cancellables: Set<AnyCancellable> = []
+    private var pendingCaps: [UUID: CGSize] = [:]
+    private var capsTask: Task<Void, Never>?
 
     var maxDuration: Double {
         items
@@ -140,27 +308,155 @@ final class PlayerManager: ObservableObject {
     func openVideos() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie, .avi]
+        panel.canChooseDirectories = true
+        var types: [UTType] = [.movie, .video, .mpeg4Movie, .quickTimeMovie, .avi]
+        types += Self.remuxExtensions.compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = types
         guard panel.runModal() == .OK else { return }
         add(urls: panel.urls)
     }
 
     func add(urls: [URL]) {
         for url in urls {
-            let item = VideoItem(url: url)
-            item.loopEnabled = loopEnabled
-            item.muteChanged = { [weak self] in self?.applyAudio() }
-            items.append(item)
-            if isPlaying { item.player.play() }
-            // 화면비가 늦게 로드되므로, 갱신되면 레이아웃을 다시 그리게 한다
-            item.$aspect
-                .dropFirst()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in self?.objectWillChange.send() }
-                .store(in: &cancellables)
+            if url.hasDirectoryPath {
+                // 폴더를 통째로 넣으면 재생목록에만 등록한다
+                // (수십 개를 한꺼번에 화면에 띄우지 않도록)
+                appendToPlaylist(videosInFolder(url))
+            } else if Self.isVideoFile(url) {
+                stageAny(url)
+                appendToPlaylist(videosInFolder(url.deletingLastPathComponent()))
+                appendToPlaylist([url])
+            }
         }
         applyAudio()
         updateTimeObserver()
+    }
+
+    /// 네이티브 형식은 바로, MKV/WebM은 변환을 거쳐 화면에 올린다
+    private func stageAny(_ url: URL) {
+        if Self.needsRemux(url) {
+            convertAndStage(url)
+        } else {
+            stage(url)
+        }
+    }
+
+    private func convertAndStage(_ source: URL) {
+        guard !isStaged(source) else { return }
+        guard Remuxer.ffmpegURL != nil else {
+            showNotice(String(localized: "MKV/WebM 재생에는 ffmpeg가 필요합니다 — 터미널에서 brew install ffmpeg"))
+            stage(source)
+            return
+        }
+        let name = source.lastPathComponent
+        remuxing[name] = 0
+        Task { @MainActor in
+            let result = await Remuxer.remux(source) { fraction in
+                Task { @MainActor [weak self] in
+                    if self?.remuxing[name] != nil {
+                        self?.remuxing[name] = Int(fraction * 100)
+                    }
+                }
+            }
+            remuxing.removeValue(forKey: name)
+            switch result {
+            case .success(let output):
+                stage(output, sourceURL: source)
+            case .failure(let failure):
+                if let codec = failure.videoCodec, ["vp8", "vp9"].contains(codec) {
+                    showNotice(String(localized: "\(name): \(codec.uppercased()) 코덱은 macOS에서 재생할 수 없습니다 (재인코딩 필요)"))
+                } else {
+                    let codecText = failure.videoCodec.map { String(localized: " (영상 코덱: \($0))") } ?? ""
+                    showNotice(String(localized: "\(name) 변환 실패\(codecText) — 로그: ~/Library/Logs/Tilo/remux.log"))
+                }
+                stage(source)
+            }
+            applyAudio()
+            updateTimeObserver()
+        }
+    }
+
+    private func isStaged(_ url: URL) -> Bool {
+        items.contains { $0.sourceURL.standardizedFileURL == url.standardizedFileURL }
+    }
+
+    /// 영상 하나를 화면(스테이지)에 올린다. 이미 올라간 영상은 무시.
+    private func stage(_ url: URL, sourceURL: URL? = nil) {
+        guard !isStaged(sourceURL ?? url) else { return }
+        let item = VideoItem(url: url, sourceURL: sourceURL)
+        item.loopEnabled = loopEnabled
+        item.subtitlesEnabled = subtitlesEnabled
+        item.muteChanged = { [weak self] in self?.applyAudio() }
+        items.append(item)
+        if isPlaying { item.player.play() }
+        // 화면비가 늦게 로드되므로, 갱신되면 레이아웃을 다시 그리게 한다
+        item.$aspect
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - 재생목록
+
+    func isOnStage(_ entry: PlaylistEntry) -> Bool {
+        items.contains { $0.sourceURL.standardizedFileURL == entry.url }
+    }
+
+    /// 재생목록 항목을 화면에 추가하거나 화면에서 내린다
+    func toggleOnStage(_ entry: PlaylistEntry) {
+        if let item = items.first(where: { $0.sourceURL.standardizedFileURL == entry.url }) {
+            remove(item)
+        } else {
+            stageAny(entry.url)
+            applyAudio()
+            updateTimeObserver()
+        }
+    }
+
+    func removeFromPlaylist(_ entry: PlaylistEntry) {
+        playlist.removeAll { $0.id == entry.id }
+        if let item = items.first(where: { $0.sourceURL.standardizedFileURL == entry.url }) {
+            remove(item)
+        }
+    }
+
+    func clearPlaylist() {
+        playlist.removeAll()
+    }
+
+    private func appendToPlaylist(_ urls: [URL]) {
+        var known = Set(playlist.map(\.url))
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            guard known.insert(standardized).inserted else { continue }
+            playlist.append(PlaylistEntry(url: standardized))
+        }
+    }
+
+    private func videosInFolder(_ folder: URL) -> [URL] {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return contents
+            .filter { Self.isVideoFile($0) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// macOS가 컨테이너를 지원하지 않아 변환이 필요한 확장자
+    static let remuxExtensions: Set<String> = ["mkv", "webm"]
+
+    static func needsRemux(_ url: URL) -> Bool {
+        remuxExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    static func isVideoFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if remuxExtensions.contains(ext) { return true }
+        guard let type = UTType(filenameExtension: ext) else { return false }
+        return type.conforms(to: .movie) || type.conforms(to: .video)
     }
 
     func remove(_ item: VideoItem) {
@@ -168,11 +464,29 @@ final class PlayerManager: ObservableObject {
         items.removeAll { $0.id == item.id }
         if soloItemID == item.id { soloItemID = nil }
         if zoomedItemID == item.id { zoomedItemID = nil }
+        // 제거된 영상이 끼어 있는 자리 교환은 풀어준다
+        rectSwaps = rectSwaps.filter { $0.key != item.id && $0.value != item.id }
         if items.isEmpty {
             isPlaying = false
             progressModel.fraction = 0
         }
         updateTimeObserver()
+    }
+
+    /// 디코딩 해상도 제한을 디바운스해서 적용한다. 창 크기를 드래그하는
+    /// 동안 매 프레임 디코더가 재설정되는 것을 막는다.
+    func scheduleResolutionCaps(_ sizes: [UUID: CGSize]) {
+        pendingCaps = sizes
+        capsTask?.cancel()
+        capsTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let self else { return }
+            for item in self.items {
+                if let size = self.pendingCaps[item.id] {
+                    item.applyResolutionCap(size)
+                }
+            }
+        }
     }
 
     /// 전체 타임라인 기준으로 모든 영상을 몇 초 앞뒤로 이동
@@ -225,8 +539,11 @@ final class PlayerManager: ObservableObject {
 
     func seekAll(to fraction: Double) {
         let time = CMTime(seconds: fraction * maxDuration, preferredTimescale: 600)
+        // 스크럽 중에는 영상 N개를 매 틱마다 정밀 시크하면 무거우므로
+        // 키프레임 단위로 따라가고, 손을 떼는 순간 정밀 시크로 보정한다
+        let tolerance: CMTime = isScrubbing ? .positiveInfinity : .zero
         for item in items {
-            item.player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+            item.player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance)
         }
         progressModel.fraction = fraction
     }
@@ -252,6 +569,11 @@ final class PlayerManager: ObservableObject {
             let duration = self.maxDuration
             guard duration > 0 else { return }
             self.progressModel.fraction = min(time.seconds / duration, 1)
+            // A-B 구간반복: B를 지나면 모든 영상을 A로 되돌린다
+            if let a = self.abA, let b = self.abB,
+               self.progressModel.fraction >= b, self.isPlaying {
+                self.seekAll(to: a)
+            }
         }
     }
 }

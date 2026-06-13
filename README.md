@@ -1,53 +1,67 @@
 # Tilo
 
-여러 개의 동영상을 동시에 재생하고, 영상 개수에 따라 전체 화면을 자동 분할하여 최적의 레이아웃으로 배치하는 macOS용 멀티 비디오 플레이어.
+A macOS multi-video player that plays several videos simultaneously, automatically tiling them into an optimal mosaic layout.
 
-## 핵심 기능
+[한국어 README](README.ko.md)
 
-- 여러 동영상 동시 로드 (열기 패널 또는 드래그 앤 드롭)
-- 모든 영상 동시 재생 / 일시정지 (Space)
-- 모든 영상 동시 탐색(Seek) — 최장 영상 길이를 기준으로 한 통합 타임라인
-- 콜라주식 모자이크 배치(기본) — 가로/세로 분할을 섞은 이진 분할 트리를 탐색해서 화면을 빈틈 없이 100% 채움. 트리의 화면비가 창 화면비에 가까울수록 크롭이 줄어드는 성질을 이용해, 모든 영상이 균등하게 최소한만 잘리는 트리를 찾는다 (전수 탐색 + 행/열 구성 시드 + 확률 탐색)
-- 원본 비율 모드 — 컨트롤 바 토글로 전환. 행 높이가 다른 저스티파이드 레이아웃으로 잘림 없이 빈 공간을 최소화
-- 전체화면 지원 (⌘F)
-- 화면 비율에 맞는 자동 레이아웃 계산 — 창 크기를 바꾸면 실시간 재계산
-- 영상 추가/삭제 시 실시간 재배치
-- 개별 영상 음소거·제거 (영상 위에 마우스를 올리면 컨트롤 표시)
-- 개별 재생바 — 호버 시 하단에 미니 시크바가 나타나 영상별로 위치 조정
-- 반복재생(기본 켜짐) — 먼저 끝난 영상은 각자 처음부터 다시 재생. 컨트롤 바에서 전역 토글
-- 오디오 솔로 — 영상을 클릭하면 그 영상만 소리가 나고 나머지는 음소거 (강조 테두리 표시). 다시 클릭하면 해제
-- 더블클릭 확대 — 영상을 더블클릭하면 원본 비율로 단독 표시 + 오디오 솔로, 다시 더블클릭하면 모자이크로 복귀
-- 전체 동기화 — 개별 시크로 어긋난 영상들을 전체 타임라인 위치로 한 번에 재정렬
-- 로컬 비디오 파일 지원 (AVFoundation이 지원하는 모든 포맷)
+## Features
 
-## 실행
+- **Mosaic layout** — searches binary split trees (mixing horizontal/vertical cuts) to cover the screen with zero gaps while cropping every video uniformly and minimally. An original-aspect justified mode is one keystroke away (`A`)
+- **Synchronized playback** — play, pause, and seek all videos together on a unified timeline; per-video seek bars on hover
+- **Per-video looping** — finished videos restart on their own so the wall stays alive
+- **Audio solo** — click a video to hear only that one; double-click to zoom it full-window
+- **Drag to swap** — drag a tile onto another to exchange their positions, with live preview
+- **A-B loop** (`R`), **subtitles** (`.srt`/`.smi` auto-discovery, including CP949-encoded Korean subs, plus embedded tracks), **playlist** that auto-collects sibling videos from the same folder
+- **MKV/WebM support** — losslessly remuxed to MP4 on import via ffmpeg (if installed), cached, with codec-aware fallbacks (`hvc1` tagging for HEVC, AAC transcode for Vorbis/Opus/DTS audio)
+- **Performance-minded** — decode resolution capped to tile size, isolated progress publishing, keyframe scrubbing. A dozen videos play smoothly
+- Localized in English, 한국어, 日本語, 简体中文
+
+## Install
+
+Requires macOS 13+. To build from source (Swift 5.9+):
 
 ```sh
-swift run
+git clone https://github.com/jungsankim/tilo.git
+cd tilo
+./scripts/build-app.sh
+open build/Tilo.app
 ```
 
-macOS 13 이상, Swift 5.9 이상 필요. Xcode에서 열려면 `Package.swift`를 열면 됩니다.
+Downloaded release builds are not notarized (no Apple Developer account). On first launch, right-click the app → **Open** → **Open**.
 
-## 단축키
+For MKV/WebM playback, install ffmpeg: `brew install ffmpeg`
 
-| 키 | 동작 |
+## Keyboard shortcuts
+
+| Key | Action |
 |---|---|
-| ⌘O | 동영상 열기 |
-| Space | 모두 재생 / 일시정지 |
-| ← / → | 5초 뒤로 / 앞으로 |
-| ⇧← / ⇧→ | 30초 뒤로 / 앞으로 |
-| 0–9 | 전체 타임라인의 0%–90% 지점으로 점프 |
-| L | 반복재생 토글 |
-| M | 전체 음소거 토글 |
-| S | 모든 영상 동기화 |
-| A | 꽉 채우기 / 원본 비율 전환 |
-| F | 전체화면 전환 |
-| Esc | 확대 해제 |
+| ⌘O | Open videos |
+| Space | Play / pause all |
+| ← / → | Seek backward / forward (interval configurable in Settings) |
+| ⇧← / ⇧→ | Seek 30s backward / forward |
+| 0–9 | Jump to 0%–90% of the timeline |
+| L | Toggle loop |
+| R | A-B loop (set A → set B → clear) |
+| M | Toggle mute all |
+| S | Sync all videos to the global timeline |
+| A | Fill screen / original aspect |
+| C | Toggle subtitles |
+| P | Toggle playlist |
+| F | Toggle full screen |
+| Esc | Exit zoom |
 
-## 구조
+## Architecture
 
-- `TiloApp.swift` — 앱 진입점과 메뉴 커맨드
-- `PlayerManager.swift` — 영상 목록과 동시 재생/일시정지/탐색 상태 관리
-- `GridLayout.swift` — 영상 개수와 컨테이너 크기에 따른 최적 격자 계산
-- `ContentView.swift` — 격자 배치, 컨트롤 바, 드래그 앤 드롭
-- `VideoCell.swift` — `AVPlayerLayer` 기반 개별 영상 셀과 호버 컨트롤
+| File | Role |
+|---|---|
+| `MosaicLayout.swift` | Binary-split-tree layout search (fill mode) |
+| `GridLayout.swift` | Justified rows layout (original-aspect mode) |
+| `PlayerManager.swift` | Playback state, playlist, audio routing, A-B loop |
+| `Remuxer.swift` | ffmpeg-based MKV/WebM → MP4 remuxing with cache |
+| `Subtitles.swift` | SRT/SMI parsing with encoding detection |
+| `ContentView.swift` | Tiling, control bar, drag & drop |
+| `VideoCell.swift` | Per-video tile: AVPlayerLayer, hover controls, subtitles |
+
+## License
+
+[MIT](LICENSE)

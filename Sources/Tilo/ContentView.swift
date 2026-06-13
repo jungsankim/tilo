@@ -4,19 +4,70 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var manager: PlayerManager
     @AppStorage("fillMode") private var fillMode = true
+    @AppStorage("playlistVisible") private var playlistVisible = true
+    @State private var controlsVisible = true
+    @State private var overControls = false
+    @State private var dropTargeted = false
+    @State private var hideTimer = AutoHideTimer()
+
+    /// 일시정지 중이거나 영상이 없거나 컨트롤 바 위에 마우스가 있으면 숨기지 않는다
+    private var showControls: Bool {
+        controlsVisible || !manager.isPlaying || manager.items.isEmpty || overControls
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if manager.items.isEmpty {
-                emptyState
-            } else {
-                videoGrid
+        HStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
+                if manager.items.isEmpty {
+                    emptyState
+                } else {
+                    videoGrid
+                }
+                controlBar
+                    .opacity(showControls ? 1 : 0)
+                    .allowsHitTesting(showControls)
+                    .animation(.easeInOut(duration: 0.25), value: showControls)
+                    .onHover { overControls = $0 }
             }
-            controlBar
+            .onContinuousHover { _ in bumpActivity() }
+            .overlay(alignment: .top) {
+                VStack(spacing: 6) {
+                    if !manager.remuxing.isEmpty {
+                        let status = manager.remuxing
+                            .sorted { $0.key < $1.key }
+                            .map { "\($0.key) \($0.value)%" }
+                            .joined(separator: ", ")
+                        toast(String(localized: "MP4로 변환 중: \(status)"), systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    if let notice = manager.notice {
+                        toast(notice, systemImage: "exclamationmark.triangle")
+                    }
+                }
+                .padding(.top, 14)
+                .animation(.easeInOut(duration: 0.2), value: manager.remuxing)
+                .animation(.easeInOut(duration: 0.2), value: manager.notice)
+            }
+
+            if playlistVisible {
+                Divider()
+                PlaylistView()
+                    .transition(.move(edge: .trailing))
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: playlistVisible)
         .background(Color.black)
         .background(hiddenShortcuts)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .overlay {
+            if dropTargeted {
+                dropHighlight
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: dropTargeted)
+        .preferredColorScheme(.dark)
+        .onChange(of: manager.isPlaying) { playing in
+            if playing { scheduleHide() }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             handleDrop(providers)
         }
         .onAppear {
@@ -25,33 +76,89 @@ struct ContentView: View {
         }
     }
 
+    private var dropHighlight: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+            VStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 40))
+                Text("여기에 놓아 추가")
+                    .font(.headline)
+            }
+            .foregroundStyle(Color.accentColor)
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, dash: [10, 6]))
+                .padding(10)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func toast(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption)
+            .lineLimit(2)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+            .transition(.opacity)
+    }
+
+    /// 마우스가 움직이면 컨트롤 바를 보여주고 숨김 타이머를 다시 건다
+    private func bumpActivity() {
+        if !controlsVisible { controlsVisible = true }
+        // 마우스 이벤트마다 Task를 만들지 않도록 0.4초 간격으로만 갱신
+        guard Date().timeIntervalSince(hideTimer.lastSchedule) > 0.4 else { return }
+        scheduleHide()
+    }
+
+    private func scheduleHide() {
+        hideTimer.lastSchedule = Date()
+        hideTimer.task?.cancel()
+        hideTimer.task = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            if manager.isPlaying, !overControls, !manager.isScrubbing {
+                controlsVisible = false
+                NSCursor.setHiddenUntilMouseMoves(true)
+            }
+        }
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "film.stack")
-                .font(.system(size: 52))
-                .foregroundStyle(.secondary)
-            Text("동영상 파일을 드래그하거나 열기 버튼을 누르세요")
-                .foregroundStyle(.secondary)
-            Button("동영상 열기…") { manager.openVideos() }
+        VStack(spacing: 22) {
+            Image(systemName: "play.square.stack")
+                .font(.system(size: 54, weight: .light))
+                .foregroundStyle(.tertiary)
+
+            VStack(spacing: 6) {
+                Text("Tilo")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                Text("여러 영상을 한 화면에서 동시에 재생합니다")
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                manager.openVideos()
+            } label: {
+                Label("동영상 열기", systemImage: "folder")
+                    .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Text("또는 동영상 파일이나 폴더를 창에 끌어다 놓으세요")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var isZoomed: Bool { manager.zoomedItemID != nil }
 
-    /// 컨트롤 바에 버튼이 없는 동작들의 단축키 (보이지 않는 버튼으로 등록)
+    /// 메뉴에 넣기 애매한 단축키만 보이지 않는 버튼으로 등록
+    /// (나머지는 메뉴바 파일/재생/보기 메뉴가 소유한다)
     private var hiddenShortcuts: some View {
         Group {
-            Button("") { manager.seekRelative(-5) }
-                .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { manager.seekRelative(5) }
-                .keyboardShortcut(.rightArrow, modifiers: [])
-            Button("") { manager.seekRelative(-30) }
-                .keyboardShortcut(.leftArrow, modifiers: .shift)
-            Button("") { manager.seekRelative(30) }
-                .keyboardShortcut(.rightArrow, modifiers: .shift)
-            Button("") { manager.toggleMuteAll() }
-                .keyboardShortcut("m", modifiers: [])
             Button("") {
                 if let zoomed = manager.items.first(where: { $0.id == manager.zoomedItemID }) {
                     manager.toggleZoom(zoomed)
@@ -77,15 +184,35 @@ struct ContentView: View {
             ? MosaicLayout.cells(for: entries, in: size)
             : GridLayout.cells(for: entries, in: size)
         let rects = Dictionary(uniqueKeysWithValues: cells.map { ($0.id, $0.rect) })
-        return manager.items.compactMap { item in rects[item.id].map { (item, $0) } }
+        // 드래그로 맞바꾼 자리를 적용한다
+        return manager.items.compactMap { item in
+            let slotID = manager.rectSwaps[item.id] ?? item.id
+            return rects[slotID].map { (item, $0) }
+        }
     }
 
-    /// 타일 크기(레티나 ×2)에 맞춰 각 영상의 디코딩 해상도를 제한한다
+    /// 타일 크기(레티나 ×2)에 맞춰 각 영상의 디코딩 해상도를 제한한다.
+    /// 적용은 매니저 쪽에서 디바운스된다.
     private func applyResolutionCaps(_ layout: [(item: VideoItem, rect: CGRect)]) {
         let scale: CGFloat = 2
-        for (item, rect) in layout {
-            item.applyResolutionCap(CGSize(width: rect.width * scale, height: rect.height * scale))
+        let sizes = Dictionary(uniqueKeysWithValues: layout.map {
+            ($0.item.id, CGSize(width: $0.rect.width * scale, height: $0.rect.height * scale))
+        })
+        manager.scheduleResolutionCaps(sizes)
+    }
+
+    /// 배치에 영향을 주는 요소들의 해시. 창 크기는 제외해서
+    /// 리사이즈 중에는 애니메이션이 끼어들지 않게 한다.
+    private var layoutKey: Int {
+        var hasher = Hasher()
+        hasher.combine(fillMode)
+        hasher.combine(manager.zoomedItemID)
+        for item in manager.items {
+            hasher.combine(item.id)
+            hasher.combine(Int(item.aspect * 64))
+            hasher.combine(manager.rectSwaps[item.id])
         }
+        return hasher.finalize()
     }
 
     private var videoGrid: some View {
@@ -98,87 +225,174 @@ struct ContentView: View {
                         item: item,
                         fill: isZoomed ? false : fillMode,
                         isSoloed: manager.soloItemID == item.id,
+                        showSubtitles: manager.subtitlesEnabled,
                         onRemove: { manager.remove(item) },
                         onSolo: isZoomed ? nil : { manager.toggleSolo(item) },
                         onZoom: { manager.toggleZoom(item) }
                     )
+                    .onDrag {
+                        manager.draggingItemID = item.id
+                        return NSItemProvider(object: item.id.uuidString as NSString)
+                    } preview: {
+                        // 셀 전체 스냅샷 대신 작은 카드가 커서를 따라다닌다
+                        HStack(spacing: 6) {
+                            Image(systemName: "film")
+                            Text(item.sourceURL.lastPathComponent)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: 200)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .onDrop(of: [.plainText], delegate: SwapDropDelegate(targetID: item.id, manager: manager))
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
+                    .transition(.opacity)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .contentShape(Rectangle())
-            .animation(.easeInOut(duration: 0.2), value: manager.items.count)
-            .animation(.easeInOut(duration: 0.2), value: fillMode)
+            .animation(.easeInOut(duration: 0.25), value: layoutKey)
         }
     }
 
+    private var barDivider: some View {
+        Divider().frame(height: 18).padding(.horizontal, 3)
+    }
+
     private var controlBar: some View {
-        HStack(spacing: 14) {
-            Button { manager.openVideos() } label: {
-                Image(systemName: "plus")
+        HStack(spacing: 2) {
+            ControlIconButton(icon: "plus", helpText: "동영상 추가 (⌘O)") {
+                manager.openVideos()
             }
-            .help("동영상 추가")
 
-            Button { manager.togglePlayAll() } label: {
-                Image(systemName: manager.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 16)
+            barDivider
+
+            ControlIconButton(
+                icon: manager.isPlaying ? "pause.fill" : "play.fill",
+                diameter: 38,
+                fontSize: 17,
+                helpText: manager.isPlaying ? "모두 일시정지 (Space)" : "모두 재생 (Space)"
+            ) {
+                manager.togglePlayAll()
             }
-            .keyboardShortcut(.space, modifiers: [])
             .disabled(manager.items.isEmpty)
-            .help(manager.isPlaying ? "모두 일시정지" : "모두 재생")
 
-            Button { manager.loopEnabled.toggle() } label: {
-                Image(systemName: "repeat")
-                    .foregroundStyle(manager.loopEnabled ? Color.accentColor : Color.secondary)
-            }
-            .keyboardShortcut("l", modifiers: [])
-            .help(manager.loopEnabled ? "반복재생 끄기 (L)" : "반복재생 켜기 (L)")
+            barDivider
 
-            Button { manager.seekAll(to: manager.progress) } label: {
-                Image(systemName: "clock.arrow.2.circlepath")
-            }
-            .keyboardShortcut("s", modifiers: [])
+            GlobalSeekSlider(
+                manager: manager,
+                progress: manager.progressModel,
+                markA: manager.abA,
+                markB: manager.abB
+            )
             .disabled(manager.items.isEmpty)
-            .help("모든 영상을 전체 타임라인 위치로 동기화 (S)")
+            .padding(.horizontal, 6)
 
-            GlobalSeekSlider(manager: manager, progress: manager.progressModel)
-                .disabled(manager.items.isEmpty)
+            barDivider
 
-            Button {
+            ControlIconButton(
+                icon: "repeat",
+                active: manager.loopEnabled,
+                helpText: manager.loopEnabled ? "반복재생 끄기 (L)" : "반복재생 켜기 (L)"
+            ) {
+                manager.loopEnabled.toggle()
+            }
+
+            ControlIconButton(
+                text: "AB",
+                tint: manager.abB != nil ? .accentColor : manager.abA != nil ? .orange : nil,
+                helpText: manager.abA == nil ? "구간반복: 시작점 설정 (R)"
+                    : manager.abB == nil ? "구간반복: 끝점 설정 (R)"
+                    : "구간반복 해제 (R)"
+            ) {
+                manager.cycleABLoop()
+            }
+            .disabled(manager.items.isEmpty)
+
+            barDivider
+
+            ControlIconButton(
+                icon: manager.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble",
+                active: manager.subtitlesEnabled,
+                helpText: manager.subtitlesEnabled ? "자막 끄기 (C)" : "자막 켜기 (C)"
+            ) {
+                manager.subtitlesEnabled.toggle()
+            }
+
+            ControlIconButton(
+                icon: fillMode ? "aspectratio.fill" : "aspectratio",
+                active: fillMode,
+                helpText: fillMode ? "원본 비율로 보기 (A)" : "화면 꽉 채우기 (A)"
+            ) {
                 fillMode.toggle()
-            } label: {
-                Image(systemName: fillMode ? "aspectratio.fill" : "aspectratio")
             }
-            .keyboardShortcut("a", modifiers: [])
-            .help(fillMode ? "원본 비율로 보기 (A)" : "화면 꽉 채우기 (A)")
 
-            Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            barDivider
+
+            ControlIconButton(
+                icon: "sidebar.trailing",
+                active: playlistVisible,
+                helpText: "재생목록 (P)"
+            ) {
+                playlistVisible.toggle()
             }
-            .keyboardShortcut("f", modifiers: [])
-            .help("전체화면 (F)")
+
+            ControlIconButton(icon: "arrow.up.left.and.arrow.down.right", helpText: "전체화면 (F)") {
+                NSApp.keyWindow?.toggleFullScreen(nil)
+            }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 760)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
+        .padding(.bottom, 14)
     }
 
     private struct GlobalSeekSlider: View {
         let manager: PlayerManager
         @ObservedObject var progress: PlaybackProgress
+        var markA: Double?
+        var markB: Double?
 
         var body: some View {
-            Slider(
-                value: Binding(
-                    get: { progress.fraction },
-                    set: { manager.seekAll(to: $0) }
-                ),
-                in: 0...1
-            ) { editing in
-                manager.isScrubbing = editing
+            HStack(spacing: 10) {
+                Slider(
+                    value: Binding(
+                        get: { progress.fraction },
+                        set: { manager.seekAll(to: $0) }
+                    ),
+                    in: 0...1
+                ) { editing in
+                    manager.isScrubbing = editing
+                    // 스크럽 중에는 키프레임 단위로 따라갔으므로 정밀 보정
+                    if !editing { manager.seekAll(to: progress.fraction) }
+                }
+                .overlay {
+                    // A-B 구간반복 지점 표시
+                    GeometryReader { geo in
+                        ForEach([markA, markB].compactMap { $0 }, id: \.self) { mark in
+                            Rectangle()
+                                .fill(Color.orange)
+                                .frame(width: 2, height: 10)
+                                .position(x: mark * geo.size.width, y: geo.size.height / 2)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
+                Text("\(timeString(progress.fraction * manager.maxDuration)) / \(timeString(manager.maxDuration))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
     }
@@ -197,5 +411,37 @@ struct ContentView: View {
             }
         }
         return handled
+    }
+}
+
+/// 컨트롤 자동 숨김 타이머. 참조 타입이라 내용이 바뀌어도
+/// 뷰를 다시 그리지 않는다.
+final class AutoHideTimer {
+    var task: Task<Void, Never>?
+    var lastSchedule = Date.distantPast
+}
+
+/// 영상 타일을 다른 타일 위로 드래그하면 두 자리를 맞바꾼다.
+/// 드래그 중 다른 타일에 들어서는 순간 실시간으로 교환된다.
+private struct SwapDropDelegate: DropDelegate {
+    let targetID: UUID
+    let manager: PlayerManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        manager.draggingItemID != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let source = manager.draggingItemID, source != targetID else { return }
+        manager.swapPositions(source, targetID)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        manager.draggingItemID = nil
+        return true
     }
 }

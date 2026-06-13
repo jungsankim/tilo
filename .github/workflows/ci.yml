@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build -c release
+      - name: Lint localization files
+        run: |
+          for f in Resources/*.lproj/Localizable.strings; do
+            plutil -lint "$f"
+          done
+      - name: Assemble app bundle
+        run: ./scripts/build-app.sh
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tilo.app
+          path: build/Tilo.app

@@ -1,0 +1,82 @@
+/* Tilo — English */
+
+/* 빈 화면 */
+"여러 영상을 한 화면에서 동시에 재생합니다" = "Play multiple videos side by side on one screen";
+"동영상 열기" = "Open Videos";
+"또는 동영상 파일이나 폴더를 창에 끌어다 놓으세요" = "…or drag video files or folders into this window";
+"여기에 놓아 추가" = "Drop to add";
+
+/* 컨트롤 바 툴팁 */
+"동영상 추가 (⌘O)" = "Add Videos (⌘O)";
+"모두 재생 (Space)" = "Play All (Space)";
+"모두 일시정지 (Space)" = "Pause All (Space)";
+"반복재생 켜기 (L)" = "Turn On Loop (L)";
+"반복재생 끄기 (L)" = "Turn Off Loop (L)";
+"구간반복: 시작점 설정 (R)" = "A-B Loop: Set Start Point (R)";
+"구간반복: 끝점 설정 (R)" = "A-B Loop: Set End Point (R)";
+"구간반복 해제 (R)" = "Clear A-B Loop (R)";
+"자막 켜기 (C)" = "Show Subtitles (C)";
+"자막 끄기 (C)" = "Hide Subtitles (C)";
+"원본 비율로 보기 (A)" = "Original Aspect Ratio (A)";
+"화면 꽉 채우기 (A)" = "Fill Screen (A)";
+"재생목록 (P)" = "Playlist (P)";
+"전체화면 (F)" = "Full Screen (F)";
+
+/* 영상 셀 */
+"음소거" = "Mute";
+"음소거 해제" = "Unmute";
+"영상 제거" = "Remove Video";
+"재생할 수 없는 파일" = "Cannot play this file";
+"변환 없이는 재생할 수 없는 형식입니다 (%@)" = "This format requires conversion (%@)";
+
+/* 재생목록 */
+"재생목록" = "Playlist";
+"목록 비우기" = "Clear Playlist";
+"영상을 열면 같은 폴더의\n영상들이 자동으로 등록됩니다" = "Open a video and others in the\nsame folder are added automatically";
+"화면에 추가" = "Add to Screen";
+"화면에서 제거" = "Remove from Screen";
+"목록에서 제거" = "Remove from Playlist";
+
+/* 변환 토스트 */
+"MP4로 변환 중: %@" = "Converting to MP4: %@";
+"MKV/WebM 재생에는 ffmpeg가 필요합니다 — 터미널에서 brew install ffmpeg" = "Playing MKV/WebM requires ffmpeg — run: brew install ffmpeg";
+"%@: %@ 코덱은 macOS에서 재생할 수 없습니다 (재인코딩 필요)" = "%1$@: the %2$@ codec cannot be played on macOS (re-encoding required)";
+"%@ 변환 실패%@ — 로그: ~/Library/Logs/Tilo/remux.log" = "%1$@ conversion failed%2$@ — log: ~/Library/Logs/Tilo/remux.log";
+" (영상 코덱: %@)" = " (video codec: %@)";
+
+/* 메뉴 */
+"Tilo에 관하여" = "About Tilo";
+"여러 영상을 한 화면에서 동시에 재생하는 멀티 비디오 플레이어" = "A multi-video player that plays several videos side by side";
+"동영상 열기…" = "Open Videos…";
+"재생 메뉴" = "Playback";
+"재생" = "Play";
+"일시정지" = "Pause";
+"%lld초 뒤로" = "Back %lld Seconds";
+"%lld초 앞으로" = "Forward %lld Seconds";
+"30초 뒤로" = "Back 30 Seconds";
+"30초 앞으로" = "Forward 30 Seconds";
+"모든 영상 동기화" = "Sync All Videos";
+"반복재생" = "Loop";
+"구간반복 설정/해제" = "Set/Clear A-B Loop";
+"전체 음소거 전환" = "Toggle Mute All";
+"화면 꽉 채우기" = "Fill Screen";
+"자막 표시" = "Show Subtitles";
+"전체화면 전환" = "Toggle Full Screen";
+
+/* 업데이트·도움말 */
+"업데이트 확인…" = "Check for Updates…";
+"Tilo 도움말 (GitHub)" = "Tilo Help (GitHub)";
+"문제 신고…" = "Report an Issue…";
+"새 버전 v%@이 있습니다 (현재 v%@)" = "Version %1$@ is available (current: v%2$@)";
+"다운로드 페이지 열기" = "Open Download Page";
+"나중에" = "Later";
+"최신 버전을 사용 중입니다 (v%@)" = "You're up to date (v%@)";
+"업데이트 정보를 가져올 수 없습니다" = "Could not check for updates";
+
+/* 환경설정 */
+"반복재생 기본 켜기" = "Loop videos by default";
+"방향키 이동 간격" = "Arrow key seek interval";
+"%lld초" = "%lld sec";
+"변환 캐시" = "Conversion Cache";
+"비우기" = "Clear";
+"버전" = "Version";
