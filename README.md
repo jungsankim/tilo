@@ -4,6 +4,14 @@ A macOS multi-video player that plays several videos simultaneously, automatical
 
 [한국어 README](README.ko.md)
 
+![Tilo playing six videos in a gapless mosaic layout](docs/screenshot-main.png)
+
+<details>
+<summary>Original-aspect mode (no cropping, letterboxed)</summary>
+
+![Tilo in original-aspect mode](docs/screenshot-aspect.png)
+</details>
+
 ## Features
 
 - **Mosaic layout** — searches binary split trees (mixing horizontal/vertical cuts) to cover the screen with zero gaps while cropping every video uniformly and minimally. An original-aspect justified mode is one keystroke away (`A`)
