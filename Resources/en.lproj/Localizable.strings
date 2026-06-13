@@ -83,3 +83,33 @@
 "변환 캐시" = "Conversion Cache";
 "비우기" = "Clear";
 "버전" = "Version";
+
+/* 새 기능: 오프셋·프레임·스냅샷·볼륨·그리드·회전·도움말 */
+"볼륨" = "Volume";
+"90° 회전" = "Rotate 90°";
+"이 영상만 뒤로 밀기" = "Nudge this video back";
+"이 영상만 앞으로 밀기" = "Nudge this video forward";
+"클릭하면 정렬 초기화" = "Click to reset alignment";
+"이전 프레임" = "Previous Frame";
+"다음 프레임" = "Next Frame";
+"스냅샷 저장" = "Save Snapshot";
+"스냅샷 저장됨: %@" = "Snapshot saved: %@";
+"스냅샷 저장에 실패했습니다" = "Failed to save snapshot";
+"최근 항목" = "Open Recent";
+"없음" = "None";
+"메뉴 지우기" = "Clear Menu";
+"화면 배치" = "Layout";
+"자동 모자이크" = "Auto Mosaic";
+"키보드 단축키" = "Keyboard Shortcuts";
+"재생 / 일시정지" = "Play / Pause";
+"5초 뒤로 / 앞으로" = "Back / Forward 5s";
+"30초 뒤로 / 앞으로" = "Back / Forward 30s";
+"이전 / 다음 프레임" = "Previous / Next frame";
+"타임라인 0–90%로 점프" = "Jump to 0–90% of timeline";
+"구간반복 (A→B→해제)" = "A-B loop (A → B → clear)";
+"전체 음소거" = "Mute all";
+"꽉 채우기 / 원본 비율" = "Fill / original aspect";
+"자막" = "Subtitles";
+"전체화면" = "Full screen";
+"확대 해제" = "Exit zoom";
+"이 도움말" = "This help";

@@ -17,8 +17,11 @@ A macOS multi-video player that plays several videos simultaneously, automatical
 - **Mosaic layout** — searches binary split trees (mixing horizontal/vertical cuts) to cover the screen with zero gaps while cropping every video uniformly and minimally. An original-aspect justified mode is one keystroke away (`A`)
 - **Synchronized playback** — play, pause, and seek all videos together on a unified timeline; per-video seek bars on hover
 - **Per-video looping** — finished videos restart on their own so the wall stays alive
-- **Audio solo** — click a video to hear only that one; double-click to zoom it full-window
+- **Built for comparison** — nudge any single video's timing to align it with the others, step every video frame-by-frame (`,` / `.`), and save a clean snapshot of the whole mosaic (`⇧⌘S`)
+- **Audio solo & volume** — click a video to hear only that one; double-click to zoom it full-window; global volume control
 - **Drag to swap** — drag a tile onto another to exchange their positions, with live preview
+- **Flexible layout** — auto mosaic, fixed grid (2×2 / 3×3 / 4×4), or original-aspect; rotate any tile 90°
+- **Session restore** — reopens your last set of videos on launch; Open Recent menu
 - **A-B loop** (`R`), **subtitles** (`.srt`/`.smi` auto-discovery, including CP949-encoded Korean subs, plus embedded tracks), **playlist** that auto-collects sibling videos from the same folder
 - **MKV/WebM support** — losslessly remuxed to MP4 on import via ffmpeg (if installed), cached, with codec-aware fallbacks (`hvc1` tagging for HEVC, AAC transcode for Vorbis/Opus/DTS audio)
 - **Performance-minded** — decode resolution capped to tile size, isolated progress publishing, keyframe scrubbing. A dozen videos play smoothly
@@ -47,16 +50,19 @@ For MKV/WebM playback, install ffmpeg: `brew install ffmpeg`
 | Space | Play / pause all |
 | ← / → | Seek backward / forward (interval configurable in Settings) |
 | ⇧← / ⇧→ | Seek 30s backward / forward |
+| , / . | Step previous / next frame |
 | 0–9 | Jump to 0%–90% of the timeline |
 | L | Toggle loop |
 | R | A-B loop (set A → set B → clear) |
 | M | Toggle mute all |
 | S | Sync all videos to the global timeline |
+| ⇧⌘S | Save snapshot of the mosaic |
 | A | Fill screen / original aspect |
 | C | Toggle subtitles |
 | P | Toggle playlist |
 | F | Toggle full screen |
 | Esc | Exit zoom |
+| ? | Show keyboard shortcuts |
 
 ## Architecture
 

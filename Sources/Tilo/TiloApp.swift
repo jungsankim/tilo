@@ -18,6 +18,7 @@ struct TiloApp: App {
     @AppStorage("fillMode") private var fillMode = true
     @AppStorage("playlistVisible") private var playlistVisible = true
     @AppStorage("seekStep") private var seekStep = 5
+    @AppStorage("gridColumns") private var gridColumns = 0
 
     var body: some Scene {
         WindowGroup("Tilo") {
@@ -51,6 +52,25 @@ struct TiloApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("동영상 열기…") { manager.openVideos() }
                     .keyboardShortcut("o")
+
+                Menu("최근 항목") {
+                    let recents = manager.recentItems
+                    if recents.isEmpty {
+                        Button("없음") {}.disabled(true)
+                    } else {
+                        ForEach(recents, id: \.self) { url in
+                            Button(url.lastPathComponent) { manager.openRecent(url) }
+                        }
+                        Divider()
+                        Button("메뉴 지우기") { manager.clearRecent() }
+                    }
+                }
+
+                Divider()
+
+                Button("스냅샷 저장") { manager.saveSnapshot() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(manager.items.isEmpty)
             }
 
             CommandMenu("재생 메뉴") {
@@ -73,6 +93,13 @@ struct TiloApp: App {
                     .keyboardShortcut(.leftArrow, modifiers: .shift)
                 Button("30초 앞으로") { manager.seekRelative(30) }
                     .keyboardShortcut(.rightArrow, modifiers: .shift)
+
+                Button("이전 프레임") { manager.stepFrames(-1) }
+                    .keyboardShortcut(",", modifiers: [])
+                    .disabled(manager.items.isEmpty)
+                Button("다음 프레임") { manager.stepFrames(1) }
+                    .keyboardShortcut(".", modifiers: [])
+                    .disabled(manager.items.isEmpty)
 
                 Divider()
 
@@ -105,6 +132,14 @@ struct TiloApp: App {
                 .keyboardShortcut("c", modifiers: [])
                 Toggle("재생목록", isOn: $playlistVisible)
                     .keyboardShortcut("p", modifiers: [])
+
+                Picker("화면 배치", selection: $gridColumns) {
+                    Text("자동 모자이크").tag(0)
+                    Text("2 × 2").tag(2)
+                    Text("3 × 3").tag(3)
+                    Text("4 × 4").tag(4)
+                }
+
                 Button("전체화면 전환") { NSApp.keyWindow?.toggleFullScreen(nil) }
                     .keyboardShortcut("f", modifiers: [])
                 Divider()

@@ -37,6 +37,22 @@ final class VideoItem: Identifiable, ObservableObject {
     /// 영상의 실제 화면비(가로/세로). 로드 전에는 16:9로 가정한다.
     @Published var aspect: CGFloat = 16.0 / 9.0
 
+    /// 동기화 재생 시 이 영상만 앞뒤로 미세 정렬하는 오프셋(초). 비교용.
+    @Published var timeOffset: Double = 0
+
+    /// 개별 볼륨 (0...1). 전역 볼륨과 곱해져 실제 볼륨이 된다.
+    @Published var volume: Double = 1 {
+        didSet { muteChanged?() }
+    }
+
+    /// 90° 단위 회전 (0, 1, 2, 3 = 0°, 90°, 180°, 270°)
+    @Published var rotationQuarters: Int = 0
+
+    /// 회전을 반영한 표시 화면비
+    var displayAspect: CGFloat {
+        rotationQuarters % 2 == 0 ? aspect : 1 / aspect
+    }
+
     /// 이 영상의 개별 재생 진행률 (0...1)
     @Published var progress: Double = 0
     /// 코덱 미지원 등으로 재생에 실패하면 셀에 안내를 띄운다
@@ -255,6 +271,14 @@ final class PlayerManager: ObservableObject {
         didSet { items.forEach { $0.subtitlesEnabled = subtitlesEnabled } }
     }
 
+    /// 전역 볼륨 (0...1). 각 영상의 개별 볼륨과 곱해진다.
+    @Published var masterVolume: Double = UserDefaults.standard.object(forKey: "masterVolume") as? Double ?? 1 {
+        didSet {
+            UserDefaults.standard.set(masterVolume, forKey: "masterVolume")
+            applyAudio()
+        }
+    }
+
     /// A-B 구간반복 지점 (전역 진행률 분수). 둘 다 설정되면 활성.
     @Published var abA: Double?
     @Published var abB: Double?
@@ -344,8 +368,10 @@ final class PlayerManager: ObservableObject {
                 appendToPlaylist([url])
             }
         }
+        rememberRecent(urls)
         applyAudio()
         updateTimeObserver()
+        saveSession()
     }
 
     /// 네이티브 형식은 바로, MKV/WebM은 변환을 거쳐 화면에 올린다
@@ -427,6 +453,7 @@ final class PlayerManager: ObservableObject {
             stageAny(entry.url)
             applyAudio()
             updateTimeObserver()
+            saveSession()
         }
     }
 
@@ -435,10 +462,62 @@ final class PlayerManager: ObservableObject {
         if let item = items.first(where: { $0.sourceURL.standardizedFileURL == entry.url }) {
             remove(item)
         }
+        saveSession()
     }
 
     func clearPlaylist() {
         playlist.removeAll()
+        saveSession()
+    }
+
+    // MARK: - 세션 복원 / 최근 항목
+
+    private let stagedKey = "session.staged"
+    private let playlistKey = "session.playlist"
+    private let recentKey = "recentItems"
+
+    /// 현재 화면에 올라간 영상과 재생목록을 저장한다 (다음 실행 때 복원)
+    func saveSession() {
+        let staged = items.map { $0.sourceURL.path }
+        UserDefaults.standard.set(staged, forKey: stagedKey)
+        UserDefaults.standard.set(playlist.map { $0.url.path }, forKey: playlistKey)
+    }
+
+    /// 마지막 세션을 복원한다. 실행 시 파일 인자가 없을 때만 호출.
+    func restoreSession() {
+        guard items.isEmpty, playlist.isEmpty else { return }
+        let fm = FileManager.default
+        let playlistPaths = UserDefaults.standard.stringArray(forKey: playlistKey) ?? []
+        appendToPlaylist(playlistPaths.map { URL(fileURLWithPath: $0) }.filter { fm.fileExists(atPath: $0.path) })
+        let stagedPaths = UserDefaults.standard.stringArray(forKey: stagedKey) ?? []
+        for path in stagedPaths where fm.fileExists(atPath: path) {
+            stageAny(URL(fileURLWithPath: path))
+        }
+        applyAudio()
+        updateTimeObserver()
+    }
+
+    var recentItems: [URL] {
+        (UserDefaults.standard.stringArray(forKey: recentKey) ?? []).map { URL(fileURLWithPath: $0) }
+    }
+
+    func openRecent(_ url: URL) {
+        add(urls: [url])
+    }
+
+    func clearRecent() {
+        UserDefaults.standard.removeObject(forKey: recentKey)
+        objectWillChange.send()
+    }
+
+    private func rememberRecent(_ urls: [URL]) {
+        var paths = UserDefaults.standard.stringArray(forKey: recentKey) ?? []
+        for url in urls.reversed() {
+            let path = url.path
+            paths.removeAll { $0 == path }
+            paths.insert(path, at: 0)
+        }
+        UserDefaults.standard.set(Array(paths.prefix(12)), forKey: recentKey)
     }
 
     private func appendToPlaylist(_ urls: [URL]) {
@@ -487,6 +566,7 @@ final class PlayerManager: ObservableObject {
             progressModel.fraction = 0
         }
         updateTimeObserver()
+        saveSession()
     }
 
     /// 디코딩 해상도 제한을 디바운스해서 적용한다. 창 크기를 드래그하는
@@ -536,6 +616,7 @@ final class PlayerManager: ObservableObject {
     private func applyAudio() {
         for item in items {
             item.player.isMuted = soloItemID.map { $0 != item.id } ?? item.isMuted
+            item.player.volume = Float(masterVolume * item.volume)
         }
     }
 
@@ -554,14 +635,83 @@ final class PlayerManager: ObservableObject {
     }
 
     func seekAll(to fraction: Double) {
-        let time = CMTime(seconds: fraction * maxDuration, preferredTimescale: 600)
+        let base = fraction * maxDuration
         // 스크럽 중에는 영상 N개를 매 틱마다 정밀 시크하면 무거우므로
         // 키프레임 단위로 따라가고, 손을 떼는 순간 정밀 시크로 보정한다
         let tolerance: CMTime = isScrubbing ? .positiveInfinity : .zero
         for item in items {
-            item.player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance)
+            // 개별 시간 오프셋을 더해 정렬 위치로 이동 (영상 길이 안으로 클램프)
+            var t = base + item.timeOffset
+            let dur = item.durationSeconds
+            if dur > 0 { t = min(max(t, 0), dur) } else { t = max(t, 0) }
+            item.player.seek(to: CMTime(seconds: t, preferredTimescale: 600),
+                             toleranceBefore: tolerance, toleranceAfter: tolerance)
         }
         progressModel.fraction = fraction
+    }
+
+    /// 일시정지 상태에서 모든 영상을 프레임 단위로 이동 (비교·분석용)
+    func stepFrames(_ count: Int) {
+        if isPlaying { pauseAll() }
+        for item in items {
+            item.player.currentItem?.step(byCount: count)
+        }
+        // 진행률을 가장 긴 영상 기준으로 갱신
+        if let master = observedPlayer ?? items.first?.player, maxDuration > 0 {
+            progressModel.fraction = min(master.currentTime().seconds / maxDuration, 1)
+        }
+    }
+
+    /// 개별 영상의 시간 오프셋을 delta초만큼 조정하고 그 영상만 다시 맞춘다
+    func adjustOffset(_ item: VideoItem, by delta: Double) {
+        item.timeOffset += delta
+        let base = progress * maxDuration
+        var t = base + item.timeOffset
+        let dur = item.durationSeconds
+        if dur > 0 { t = min(max(t, 0), dur) } else { t = max(t, 0) }
+        item.player.seek(to: CMTime(seconds: t, preferredTimescale: 600),
+                         toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func resetOffset(_ item: VideoItem) {
+        guard item.timeOffset != 0 else { return }
+        adjustOffset(item, by: -item.timeOffset)
+    }
+
+    func rotate(_ item: VideoItem) {
+        item.rotationQuarters = (item.rotationQuarters + 1) % 4
+        objectWillChange.send() // 회전이 화면비를 바꿔 레이아웃 재계산
+    }
+
+    // MARK: - 스냅샷
+
+    /// ContentView가 매 레이아웃마다 현재 배치를 기록한다 (메뉴에서 스냅샷 호출 가능).
+    /// @Published가 아니라서 기록 자체는 뷰를 다시 그리지 않는다.
+    private(set) var snapshotRects: [UUID: CGRect] = [:]
+    private(set) var snapshotCanvas: CGSize = .zero
+    private(set) var snapshotFill = true
+
+    func recordLayout(rects: [UUID: CGRect], canvas: CGSize, fill: Bool) {
+        snapshotRects = rects
+        snapshotCanvas = canvas
+        snapshotFill = fill
+    }
+
+    func saveSnapshot() {
+        guard !items.isEmpty, snapshotCanvas.width > 0 else { return }
+        let tiles = items.compactMap { item in
+            snapshotRects[item.id].map { Snapshotter.Tile(item: item, rect: $0) }
+        }
+        let canvas = snapshotCanvas
+        let fill = snapshotFill
+        Task { @MainActor in
+            if let url = await Snapshotter.capture(tiles: tiles, canvas: canvas, fill: fill) {
+                showNotice(String(localized: "스냅샷 저장됨: \(url.lastPathComponent)"))
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else {
+                showNotice(String(localized: "스냅샷 저장에 실패했습니다"))
+            }
+        }
     }
 
     /// 진행률 추적 기준 플레이어를 다시 고른다. 길이가 가장 긴 영상이

@@ -9,6 +9,12 @@ struct VideoCell: View {
     let onRemove: () -> Void
     var onSolo: (() -> Void)?
     var onZoom: (() -> Void)?
+    var onRotate: (() -> Void)?
+    var onOffset: ((Double) -> Void)?
+    var onResetOffset: (() -> Void)?
+
+    /// 개별 시간 오프셋 한 번 누를 때 이동량(초)
+    private let offsetStep = 0.1
 
     @State private var hovering = false
     @State private var active = true
@@ -19,7 +25,7 @@ struct VideoCell: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            PlayerLayerView(player: item.player, fill: fill)
+            PlayerLayerView(player: item.player, fill: fill, rotationQuarters: item.rotationQuarters)
                 .background(Color.black)
                 .gesture(
                     TapGesture(count: 2)
@@ -64,6 +70,14 @@ struct VideoCell: View {
                         item.isMuted.toggle()
                     }
                     ControlIconButton(
+                        icon: "rotate.right",
+                        diameter: 26,
+                        fontSize: 12,
+                        helpText: "90° 회전"
+                    ) {
+                        onRotate?()
+                    }
+                    ControlIconButton(
                         icon: "xmark",
                         diameter: 26,
                         fontSize: 12,
@@ -80,17 +94,39 @@ struct VideoCell: View {
         }
         .overlay(alignment: .topLeading) {
             if showOverlay {
-                Text(item.sourceURL.lastPathComponent)
-                    .font(.caption2)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-                    .padding(10)
-                    .frame(maxWidth: 260, alignment: .leading)
-                    .transition(.opacity)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.sourceURL.lastPathComponent)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+
+                    // 동기화 미세 정렬: 이 영상만 앞뒤로 밀기
+                    HStack(spacing: 2) {
+                        ControlIconButton(icon: "minus", diameter: 22, fontSize: 10, helpText: "이 영상만 뒤로 밀기") {
+                            onOffset?(-offsetStep)
+                        }
+                        Text(offsetLabel)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.9))
+                            .frame(minWidth: 52)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onResetOffset?() }
+                            .help("클릭하면 정렬 초기화")
+                        ControlIconButton(icon: "plus", diameter: 22, fontSize: 10, helpText: "이 영상만 앞으로 밀기") {
+                            onOffset?(offsetStep)
+                        }
+                    }
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .padding(10)
+                .frame(maxWidth: 260, alignment: .leading)
+                .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
@@ -164,6 +200,12 @@ struct VideoCell: View {
         }
     }
 
+    private var offsetLabel: String {
+        let v = item.timeOffset
+        if abs(v) < 0.001 { return "±0s" }
+        return String(format: "%+.1fs", v)
+    }
+
     /// 마우스가 움직이면 컨트롤을 보여주고 숨김 타이머를 다시 건다
     private func bump() {
         if !active {
@@ -185,6 +227,7 @@ struct VideoCell: View {
 struct PlayerLayerView: NSViewRepresentable {
     let player: AVPlayer
     let fill: Bool
+    var rotationQuarters: Int = 0
 
     func makeNSView(context: Context) -> PlayerNSView {
         let view = PlayerNSView()
@@ -195,11 +238,14 @@ struct PlayerLayerView: NSViewRepresentable {
     func updateNSView(_ nsView: PlayerNSView, context: Context) {
         nsView.playerLayer.player = player
         nsView.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+        nsView.rotationQuarters = rotationQuarters
+        nsView.needsLayout = true
     }
 }
 
 final class PlayerNSView: NSView {
     let playerLayer = AVPlayerLayer()
+    var rotationQuarters = 0
 
     init() {
         super.init(frame: .zero)
@@ -208,6 +254,7 @@ final class PlayerNSView: NSView {
         playerLayer.videoGravity = .resizeAspect
         // 채우기(crop) 모드에서 영상이 셀 밖으로 넘치지 않도록
         playerLayer.masksToBounds = true
+        layer?.masksToBounds = true
         layer?.addSublayer(playerLayer)
     }
 
@@ -218,7 +265,16 @@ final class PlayerNSView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
+        let q = ((rotationQuarters % 4) + 4) % 4
+        // 90°/270° 회전 시 레이어 bounds의 가로·세로를 바꿔 셀을 채운 뒤
+        // 중심을 기준으로 회전한다. videoGravity는 회전 전 bounds 기준으로 동작.
+        let swapped = q % 2 != 0
+        playerLayer.bounds = CGRect(
+            origin: .zero,
+            size: swapped ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
+        )
+        playerLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        playerLayer.setAffineTransform(CGAffineTransform(rotationAngle: CGFloat(q) * .pi / 2))
         CATransaction.commit()
     }
 }

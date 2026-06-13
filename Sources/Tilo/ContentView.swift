@@ -5,9 +5,11 @@ struct ContentView: View {
     @EnvironmentObject var manager: PlayerManager
     @AppStorage("fillMode") private var fillMode = true
     @AppStorage("playlistVisible") private var playlistVisible = true
+    @AppStorage("gridColumns") private var gridColumns = 0 // 0 = 자동 모자이크
     @State private var controlsVisible = true
     @State private var overControls = false
     @State private var dropTargeted = false
+    @State private var showShortcuts = false
     @State private var hideTimer = AutoHideTimer()
 
     /// 일시정지 중이거나 영상이 없거나 컨트롤 바 위에 마우스가 있으면 숨기지 않는다
@@ -63,6 +65,10 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: dropTargeted)
+        .overlay {
+            if showShortcuts { shortcutsOverlay }
+        }
+        .animation(.easeInOut(duration: 0.15), value: showShortcuts)
         .preferredColorScheme(.dark)
         .onChange(of: manager.isPlaying) { playing in
             if playing { scheduleHide() }
@@ -73,7 +79,48 @@ struct ContentView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            // 실행 시 파일 인자가 없으면 마지막 세션을 복원
+            manager.restoreSession()
         }
+    }
+
+    private var shortcutsOverlay: some View {
+        let rows: [(String, String)] = [
+            ("Space", String(localized: "재생 / 일시정지")),
+            ("← / →", String(localized: "5초 뒤로 / 앞으로")),
+            ("⇧← / ⇧→", String(localized: "30초 뒤로 / 앞으로")),
+            (", / .", String(localized: "이전 / 다음 프레임")),
+            ("0–9", String(localized: "타임라인 0–90%로 점프")),
+            ("L", String(localized: "반복재생")),
+            ("R", String(localized: "구간반복 (A→B→해제)")),
+            ("M", String(localized: "전체 음소거")),
+            ("S", String(localized: "모든 영상 동기화")),
+            ("A", String(localized: "꽉 채우기 / 원본 비율")),
+            ("C", String(localized: "자막")),
+            ("P", String(localized: "재생목록")),
+            ("F", String(localized: "전체화면")),
+            ("⇧⌘S", String(localized: "스냅샷 저장")),
+            ("Esc", String(localized: "확대 해제")),
+            ("?", String(localized: "이 도움말")),
+        ]
+        return ZStack {
+            Color.black.opacity(0.55).onTapGesture { showShortcuts = false }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("키보드 단축키").font(.title3.bold())
+                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 7) {
+                    ForEach(rows, id: \.0) { key, desc in
+                        GridRow {
+                            Text(key).font(.callout.monospaced().bold())
+                                .frame(minWidth: 70, alignment: .leading)
+                            Text(desc).font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(28)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .allowsHitTesting(true)
     }
 
     private var dropHighlight: some View {
@@ -160,11 +207,15 @@ struct ContentView: View {
     private var hiddenShortcuts: some View {
         Group {
             Button("") {
-                if let zoomed = manager.items.first(where: { $0.id == manager.zoomedItemID }) {
+                if showShortcuts {
+                    showShortcuts = false
+                } else if let zoomed = manager.items.first(where: { $0.id == manager.zoomedItemID }) {
                     manager.toggleZoom(zoomed)
                 }
             }
             .keyboardShortcut(.escape, modifiers: [])
+            Button("") { showShortcuts.toggle() }
+                .keyboardShortcut("/", modifiers: .shift) // "?"
             ForEach(0..<10, id: \.self) { digit in
                 Button("") { manager.seekAll(to: Double(digit) / 10) }
                     .keyboardShortcut(KeyEquivalent(Character("\(digit)")), modifiers: [])
@@ -174,20 +225,39 @@ struct ContentView: View {
         .frame(width: 0, height: 0)
     }
 
-    /// 확대 모드면 그 영상 하나가 전체를, 아니면 모자이크/저스티파이드 배치
+    /// 확대 모드면 그 영상 하나가 전체를, 아니면 수동 그리드/모자이크/저스티파이드 배치
     private func layoutItems(in size: CGSize) -> [(item: VideoItem, rect: CGRect)] {
         if let zoomed = manager.items.first(where: { $0.id == manager.zoomedItemID }) {
             return [(zoomed, CGRect(origin: .zero, size: size))]
         }
-        let entries = manager.items.map { GridLayout.Entry(id: $0.id, aspect: $0.aspect) }
-        let cells = fillMode
-            ? MosaicLayout.cells(for: entries, in: size)
-            : GridLayout.cells(for: entries, in: size)
-        let rects = Dictionary(uniqueKeysWithValues: cells.map { ($0.id, $0.rect) })
+        let rects: [UUID: CGRect]
+        if gridColumns > 0 {
+            // 수동 균일 그리드 (영상 추가 순서대로)
+            let grid = uniformGrid(count: manager.items.count, columns: gridColumns, in: size)
+            rects = Dictionary(uniqueKeysWithValues: zip(manager.items.map { $0.id }, grid))
+        } else {
+            let entries = manager.items.map { GridLayout.Entry(id: $0.id, aspect: $0.displayAspect) }
+            let cells = fillMode
+                ? MosaicLayout.cells(for: entries, in: size)
+                : GridLayout.cells(for: entries, in: size)
+            rects = Dictionary(uniqueKeysWithValues: cells.map { ($0.id, $0.rect) })
+        }
         // 드래그로 맞바꾼 자리를 적용한다
         return manager.items.compactMap { item in
             let slotID = manager.rectSwaps[item.id] ?? item.id
             return rects[slotID].map { (item, $0) }
+        }
+    }
+
+    /// 영상 개수와 열 수로 균일 격자 사각형들을 만든다 (마지막 줄은 남는 칸 비움)
+    private func uniformGrid(count: Int, columns: Int, in size: CGSize) -> [CGRect] {
+        guard count > 0 else { return [] }
+        let cols = max(1, min(columns, count))
+        let rows = Int((Double(count) / Double(cols)).rounded(.up))
+        let cw = size.width / CGFloat(cols)
+        let ch = size.height / CGFloat(rows)
+        return (0..<count).map { i in
+            CGRect(x: CGFloat(i % cols) * cw, y: CGFloat(i / cols) * ch, width: cw, height: ch)
         }
     }
 
@@ -206,10 +276,12 @@ struct ContentView: View {
     private var layoutKey: Int {
         var hasher = Hasher()
         hasher.combine(fillMode)
+        hasher.combine(gridColumns)
         hasher.combine(manager.zoomedItemID)
         for item in manager.items {
             hasher.combine(item.id)
-            hasher.combine(Int(item.aspect * 64))
+            hasher.combine(Int(item.displayAspect * 64))
+            hasher.combine(item.rotationQuarters)
             hasher.combine(manager.rectSwaps[item.id])
         }
         return hasher.finalize()
@@ -219,6 +291,11 @@ struct ContentView: View {
         GeometryReader { geo in
             let layout = layoutItems(in: geo.size)
             let _ = applyResolutionCaps(layout)
+            let _ = manager.recordLayout(
+                rects: Dictionary(uniqueKeysWithValues: layout.map { ($0.item.id, $0.rect) }),
+                canvas: geo.size,
+                fill: isZoomed ? false : fillMode
+            )
             ZStack(alignment: .topLeading) {
                 ForEach(layout, id: \.item.id) { item, rect in
                     VideoCell(
@@ -228,7 +305,10 @@ struct ContentView: View {
                         showSubtitles: manager.subtitlesEnabled,
                         onRemove: { manager.remove(item) },
                         onSolo: isZoomed ? nil : { manager.toggleSolo(item) },
-                        onZoom: { manager.toggleZoom(item) }
+                        onZoom: { manager.toggleZoom(item) },
+                        onRotate: { manager.rotate(item) },
+                        onOffset: { manager.adjustOffset(item, by: $0) },
+                        onResetOffset: { manager.resetOffset(item) }
                     )
                     .onDrag {
                         manager.draggingItemID = item.id
@@ -294,6 +374,10 @@ struct ContentView: View {
 
             barDivider
 
+            VolumeButton(manager: manager)
+
+            barDivider
+
             ControlIconButton(
                 icon: "repeat",
                 active: manager.loopEnabled,
@@ -355,6 +439,33 @@ struct ContentView: View {
         )
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
+    }
+
+    private struct VolumeButton: View {
+        @ObservedObject var manager: PlayerManager
+        @State private var showPopover = false
+
+        private var icon: String {
+            if manager.masterVolume <= 0.001 { return "speaker.slash.fill" }
+            if manager.masterVolume < 0.5 { return "speaker.wave.1.fill" }
+            return "speaker.wave.2.fill"
+        }
+
+        var body: some View {
+            ControlIconButton(icon: icon, helpText: "볼륨") {
+                showPopover.toggle()
+            }
+            .popover(isPresented: $showPopover, arrowEdge: .top) {
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.secondary)
+                    Slider(value: $manager.masterVolume, in: 0...1)
+                        .frame(width: 140)
+                    Image(systemName: "speaker.wave.3.fill").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
     }
 
     private struct GlobalSeekSlider: View {
