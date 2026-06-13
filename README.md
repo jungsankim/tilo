@@ -4,12 +4,12 @@ A macOS multi-video player that plays several videos simultaneously, automatical
 
 [한국어 README](README.ko.md)
 
-![Tilo playing six videos in a gapless mosaic layout](docs/screenshot-main.png)
+![Tilo playing six videos in a gapless mosaic layout](docs/screenshot-main.jpg)
 
 <details>
 <summary>Original-aspect mode (no cropping, letterboxed)</summary>
 
-![Tilo in original-aspect mode](docs/screenshot-aspect.png)
+![Tilo in original-aspect mode](docs/screenshot-aspect.jpg)
 </details>
 
 ## Features

@@ -2,12 +2,12 @@
 
 여러 개의 동영상을 동시에 재생하고, 영상 개수에 따라 전체 화면을 자동 분할하여 최적의 레이아웃으로 배치하는 macOS용 멀티 비디오 플레이어.
 
-![여섯 개의 영상을 빈틈 없는 모자이크로 재생하는 Tilo](docs/screenshot-main.png)
+![여섯 개의 영상을 빈틈 없는 모자이크로 재생하는 Tilo](docs/screenshot-main.jpg)
 
 <details>
 <summary>원본 비율 모드 (잘림 없이 레터박스)</summary>
 
-![원본 비율 모드의 Tilo](docs/screenshot-aspect.png)
+![원본 비율 모드의 Tilo](docs/screenshot-aspect.jpg)
 </details>
 
 ## 핵심 기능
