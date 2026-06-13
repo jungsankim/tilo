@@ -393,6 +393,25 @@ struct ContentView: View {
 
             barDivider
 
+            ControlIconButton(
+                icon: fillMode ? "aspectratio.fill" : "aspectratio",
+                active: !fillMode,
+                helpText: fillMode ? "원본 비율 유지 (A)" : "화면 꽉 채우기 (A)"
+            ) {
+                fillMode.toggle()
+            }
+
+            ControlIconButton(
+                text: "AB",
+                tint: manager.abB != nil ? .accentColor : manager.abA != nil ? .orange : nil,
+                helpText: manager.abA == nil ? "구간반복: 시작점 설정 (R)"
+                    : manager.abB == nil ? "구간반복: 끝점 설정 (R)"
+                    : "구간반복 해제 (R)"
+            ) {
+                manager.cycleABLoop()
+            }
+            .disabled(manager.items.isEmpty)
+
             MoreButton(manager: manager)
         }
         .padding(.horizontal, 12)
@@ -410,7 +429,6 @@ struct ContentView: View {
     /// 컨트롤 바의 "더보기(•••)" — 가끔 쓰는 토글·동작을 글자 라벨로 모은다
     private struct MoreButton: View {
         @ObservedObject var manager: PlayerManager
-        @AppStorage("fillMode") private var fillMode = true
         @AppStorage("gridColumns") private var gridColumns = 0
         @State private var show = false
 
@@ -422,25 +440,8 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Toggle("반복재생", isOn: Binding(
                         get: { manager.loopEnabled }, set: { manager.loopEnabled = $0 }))
-                    Button {
-                        manager.cycleABLoop()
-                    } label: {
-                        HStack {
-                            Text("구간반복")
-                            Spacer()
-                            Text(manager.abB != nil ? "A–B" : manager.abA != nil ? "A…" : "")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(manager.items.isEmpty)
-
-                    Divider().padding(.vertical, 4)
-
                     Toggle("자막", isOn: Binding(
                         get: { manager.subtitlesEnabled }, set: { manager.subtitlesEnabled = $0 }))
-                    Toggle("원본 비율 유지", isOn: Binding(
-                        get: { !fillMode }, set: { fillMode = !$0 }))
                     Picker("화면 배치", selection: $gridColumns) {
                         Text("자동 모자이크").tag(0)
                         Text("2 × 2").tag(2)

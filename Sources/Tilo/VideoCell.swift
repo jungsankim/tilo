@@ -115,6 +115,14 @@ struct VideoCell: View {
                     .popover(isPresented: $showMenu, arrowEdge: .bottom) {
                         cellMenu.frame(width: 200).padding(14)
                     }
+                    ControlIconButton(
+                        icon: "xmark",
+                        diameter: 26,
+                        fontSize: 12,
+                        helpText: "영상 제거"
+                    ) {
+                        onRemove()
+                    }
                 }
                 .padding(3)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 9))
@@ -242,10 +250,6 @@ struct VideoCell: View {
             if item.isReframed {
                 Button("확대·이동 초기화") { onResetReframe?() }.buttonStyle(.plain)
             }
-
-            Divider()
-
-            Button("영상 제거", role: .destructive) { onRemove() }.buttonStyle(.plain)
         }
         .font(.callout)
     }
