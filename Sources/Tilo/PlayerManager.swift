@@ -72,6 +72,8 @@ final class VideoItem: Identifiable, ObservableObject {
     @Published var currentSubtitle: String?
     var isScrubbing = false
     var loopEnabled = true
+    /// 루프 복귀 시 적용할 재생 속도 (상대 타임라인 모드에서 영상별로 다름)
+    var rateProvider: (() -> Float)?
 
     var subtitlesEnabled = true {
         didSet {
@@ -123,7 +125,7 @@ final class VideoItem: Identifiable, ObservableObject {
         ) { [weak self] _ in
             guard let self, self.loopEnabled else { return }
             self.player.seek(to: .zero)
-            self.player.play()
+            self.player.playImmediately(atRate: self.rateProvider?() ?? 1)
         }
         statusCancellable = player.currentItem?.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -302,6 +304,25 @@ final class PlayerManager: ObservableObject {
         }
     }
 
+    /// 전체 재생바 기준: false = 절대 시간(가장 긴 영상), true = 상대 비율
+    /// (각 영상이 자기 길이의 같은 비율 지점으로 이동, 100%에서 모두 함께 끝남)
+    @Published var relativeTimeline = UserDefaults.standard.bool(forKey: "relativeTimeline") {
+        didSet {
+            UserDefaults.standard.set(relativeTimeline, forKey: "relativeTimeline")
+            // 모드가 바뀌면 현재 위치를 새 매핑으로 다시 맞추고 속도를 재적용
+            seekAll(to: progress)
+            if isPlaying { playAll() }
+        }
+    }
+
+    /// 상대 타임라인 모드에서 영상이 가장 긴 영상과 함께 끝나도록 하는 재생 속도.
+    /// 절대 모드(또는 길이 미상)에서는 1배.
+    private func desiredRate(for item: VideoItem) -> Float {
+        guard relativeTimeline, maxDuration > 0 else { return 1 }
+        let dur = item.durationSeconds
+        return dur > 0 ? Float(dur / maxDuration) : 1
+    }
+
     /// A-B 구간반복 지점 (전역 진행률 분수). 둘 다 설정되면 활성.
     @Published var abA: Double?
     @Published var abB: Double?
@@ -452,8 +473,12 @@ final class PlayerManager: ObservableObject {
         item.loopEnabled = loopEnabled
         item.subtitlesEnabled = subtitlesEnabled
         item.muteChanged = { [weak self] in self?.applyAudio() }
+        item.rateProvider = { [weak self, weak item] in
+            guard let self, let item else { return 1 }
+            return self.desiredRate(for: item)
+        }
         items.append(item)
-        if isPlaying { item.player.play() }
+        if isPlaying { item.player.playImmediately(atRate: desiredRate(for: item)) }
         // 화면비가 늦게 로드되므로, 갱신되면 레이아웃을 다시 그리게 한다
         item.$aspect
             .dropFirst()
@@ -709,7 +734,8 @@ final class PlayerManager: ObservableObject {
     }
 
     func playAll() {
-        items.forEach { $0.player.play() }
+        // 상대 모드에서는 영상별로 다른 속도로 재생해 같은 비율을 유지한다
+        items.forEach { $0.player.playImmediately(atRate: desiredRate(for: $0)) }
         isPlaying = true
     }
 
@@ -724,9 +750,10 @@ final class PlayerManager: ObservableObject {
         // 키프레임 단위로 따라가고, 손을 떼는 순간 정밀 시크로 보정한다
         let tolerance: CMTime = isScrubbing ? .positiveInfinity : .zero
         for item in items {
-            // 개별 시간 오프셋을 더해 정렬 위치로 이동 (영상 길이 안으로 클램프)
-            var t = base + item.timeOffset
             let dur = item.durationSeconds
+            // 상대 모드: 각 영상의 자기 길이 비율 지점. 절대 모드: 같은 시각.
+            var t = relativeTimeline ? fraction * dur + item.timeOffset
+                                     : base + item.timeOffset
             if dur > 0 { t = min(max(t, 0), dur) } else { t = max(t, 0) }
             item.player.seek(to: CMTime(seconds: t, preferredTimescale: 600),
                              toleranceBefore: tolerance, toleranceAfter: tolerance)

@@ -132,3 +132,7 @@
 "%lld 선택" = "%lld selected";
 "선택 삭제 (Delete)" = "Delete selected (Delete)";
 "다시 시작할 때 마지막 세션 복원" = "Restore last session on launch";
+
+/* 상대 타임라인 모드 */
+"길이 비율로 재생바 맞추기" = "Scale timeline to each length";
+"켜면 각 영상이 자기 길이의 같은 비율로 재생되어 모두 함께 끝납니다" = "When on, each video plays at the same relative position and they all end together";

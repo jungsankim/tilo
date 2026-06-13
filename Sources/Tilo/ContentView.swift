@@ -450,6 +450,9 @@ struct ContentView: View {
                         Text("4 × 4").tag(4)
                     }
                     .pickerStyle(.menu)
+                    Toggle("길이 비율로 재생바 맞추기", isOn: Binding(
+                        get: { manager.relativeTimeline }, set: { manager.relativeTimeline = $0 }))
+                        .help("켜면 각 영상이 자기 길이의 같은 비율로 재생되어 모두 함께 끝납니다")
 
                     Divider().padding(.vertical, 4)
 
