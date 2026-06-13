@@ -12,7 +12,7 @@ struct VideoCell: View {
     var onRotate: (() -> Void)?
     var onOffset: ((Double) -> Void)?
     var onResetOffset: (() -> Void)?
-    var onZoomDelta: ((CGFloat) -> Void)?
+    var onScrollZoom: ((CGFloat, CGPoint) -> Void)?
     var onPan: ((CGSize) -> Void)?
     var onResetReframe: (() -> Void)?
 
@@ -36,7 +36,7 @@ struct VideoCell: View {
                 rotationQuarters: item.rotationQuarters,
                 zoomScale: item.zoomScale,
                 panOffset: item.panOffset,
-                onZoomDelta: { onZoomDelta?($0) }
+                onZoom: { onScrollZoom?($0, $1) }
             )
                 .background(Color.black)
                 .background(
@@ -274,7 +274,7 @@ struct PlayerLayerView: NSViewRepresentable {
     var rotationQuarters: Int = 0
     var zoomScale: CGFloat = 1
     var panOffset: CGSize = .zero
-    var onZoomDelta: ((CGFloat) -> Void)?
+    var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeNSView(context: Context) -> PlayerNSView {
         let view = PlayerNSView()
@@ -288,7 +288,7 @@ struct PlayerLayerView: NSViewRepresentable {
         nsView.rotationQuarters = rotationQuarters
         nsView.zoomScale = zoomScale
         nsView.panOffset = panOffset
-        nsView.onZoomDelta = onZoomDelta
+        nsView.onZoom = onZoom
         nsView.needsLayout = true
     }
 }
@@ -298,7 +298,7 @@ final class PlayerNSView: NSView {
     var rotationQuarters = 0
     var zoomScale: CGFloat = 1
     var panOffset: CGSize = .zero
-    var onZoomDelta: ((CGFloat) -> Void)?
+    var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -314,12 +314,21 @@ final class PlayerNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// 스크롤로 확대 (트랙패드·마우스 휠 모두 scrollingDeltaY)
+    /// 스크롤로 확대 (트랙패드·마우스 휠 모두 scrollingDeltaY).
+    /// 커서 위치를 타일 중심 기준 비율(x 오른쪽, y 아래, -0.5…0.5)로 넘겨
+    /// 그 지점을 기준으로 확대되게 한다.
     override func scrollWheel(with event: NSEvent) {
-        guard event.scrollingDeltaY != 0 else { return super.scrollWheel(with: event) }
+        guard event.scrollingDeltaY != 0, bounds.width > 0, bounds.height > 0 else {
+            return super.scrollWheel(with: event)
+        }
         // 픽셀 단위(트랙패드)는 작게, 라인 단위(휠)는 크게 들어오므로 정규화
         let unit: CGFloat = event.hasPreciseScrollingDeltas ? 0.005 : 0.08
-        onZoomDelta?(event.scrollingDeltaY * unit)
+        let lp = convert(event.locationInWindow, from: nil) // 원점 좌하단(y 위로)
+        let focus = CGPoint(
+            x: (lp.x - bounds.midX) / bounds.width,
+            y: (bounds.midY - lp.y) / bounds.height // 화면 아래 방향을 +로
+        )
+        onZoom?(event.scrollingDeltaY * unit, focus)
     }
 
     override func layout() {

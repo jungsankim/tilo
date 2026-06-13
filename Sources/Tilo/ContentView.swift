@@ -309,7 +309,7 @@ struct ContentView: View {
                         onRotate: { manager.rotate(item) },
                         onOffset: { manager.adjustOffset(item, by: $0) },
                         onResetOffset: { manager.resetOffset(item) },
-                        onZoomDelta: { manager.adjustZoom(item, by: $0) },
+                        onScrollZoom: { manager.adjustZoom(item, by: $0, focus: $1) },
                         onPan: { manager.setPan(item, to: $0) },
                         onResetReframe: { item.resetReframe() }
                     )

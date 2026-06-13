@@ -711,9 +711,19 @@ final class PlayerManager: ObservableObject {
 
     // MARK: - 리프레임 (타일 내부 확대·이동)
 
-    /// 스크롤로 확대 배율을 조정한다 (1~6배). 배율이 1이면 이동도 초기화.
-    func adjustZoom(_ item: VideoItem, by delta: CGFloat) {
-        item.zoomScale = min(max(item.zoomScale + delta, 1), 6)
+    /// 스크롤로 확대 배율을 조정한다 (1~6배). focus는 커서의 타일 내 위치
+    /// (중심 0, 범위 -0.5…0.5, x는 오른쪽·y는 아래). 그 지점이 제자리에 남도록
+    /// 이동량을 함께 보정해서 "커서 기준 확대"가 되게 한다.
+    func adjustZoom(_ item: VideoItem, by delta: CGFloat, focus: CGPoint = .zero) {
+        let old = item.zoomScale
+        let new = min(max(old + delta, 1), 6)
+        guard new != old else { return }
+        let ratio = new / old
+        item.zoomScale = new
+        item.panOffset = CGSize(
+            width: focus.x - ratio * (focus.x - item.panOffset.width),
+            height: focus.y - ratio * (focus.y - item.panOffset.height)
+        )
         clampPan(item)
     }
 
