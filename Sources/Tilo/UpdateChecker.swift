@@ -13,6 +13,20 @@ enum UpdateChecker {
     }
 
     /// 결과를 NSAlert로 보여준다 (메뉴 "업데이트 확인…")
+    enum CheckError: LocalizedError {
+        case noReleases
+        case server(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .noReleases:
+                return String(localized: "아직 게시된 릴리스가 없습니다")
+            case .server(let code):
+                return String(localized: "서버 응답 오류 (\(code))")
+            }
+        }
+    }
+
     @MainActor
     static func checkAndPresent() {
         Task { @MainActor in
@@ -29,6 +43,9 @@ enum UpdateChecker {
                     return
                 }
                 alert.messageText = String(localized: "최신 버전을 사용 중입니다 (v\(currentVersion))")
+            } catch CheckError.noReleases {
+                alert.messageText = String(localized: "아직 게시된 릴리스가 없습니다")
+                alert.informativeText = String(localized: "현재 v\(currentVersion)을 사용 중입니다.")
             } catch {
                 alert.messageText = String(localized: "업데이트 정보를 가져올 수 없습니다")
                 alert.informativeText = error.localizedDescription
@@ -40,7 +57,12 @@ enum UpdateChecker {
     private static func fetchLatestVersion() async throws -> String {
         var request = URLRequest(url: latestAPI)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        // 릴리스가 하나도 없으면 GitHub은 404를 준다 → 본문에 tag_name이 없어
+        // 그대로 디코딩하면 알 수 없는 오류가 난다. 상태 코드를 먼저 본다.
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw http.statusCode == 404 ? CheckError.noReleases : CheckError.server(http.statusCode)
+        }
         struct Release: Decodable { let tag_name: String }
         let tag = try JSONDecoder().decode(Release.self, from: data).tag_name
         return tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
