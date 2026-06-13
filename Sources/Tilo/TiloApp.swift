@@ -71,6 +71,10 @@ struct TiloApp: App {
                 Button("스냅샷 저장") { manager.saveSnapshot() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .disabled(manager.items.isEmpty)
+
+                Button("모두 닫기") { manager.closeAll() }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+                    .disabled(manager.items.isEmpty)
             }
 
             CommandMenu("재생 메뉴") {

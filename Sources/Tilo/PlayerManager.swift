@@ -48,6 +48,17 @@ final class VideoItem: Identifiable, ObservableObject {
     /// 90° 단위 회전 (0, 1, 2, 3 = 0°, 90°, 180°, 270°)
     @Published var rotationQuarters: Int = 0
 
+    /// 타일 내부 리프레임: 확대 배율(1 = 원본)과 중심 이동(타일 크기 대비 비율)
+    @Published var zoomScale: CGFloat = 1
+    @Published var panOffset: CGSize = .zero
+
+    var isReframed: Bool { zoomScale > 1.001 || panOffset != .zero }
+
+    func resetReframe() {
+        zoomScale = 1
+        panOffset = .zero
+    }
+
     /// 회전을 반영한 표시 화면비
     var displayAspect: CGFloat {
         rotationQuarters % 2 == 0 ? aspect : 1 / aspect
@@ -554,6 +565,21 @@ final class PlayerManager: ObservableObject {
         return type.conforms(to: .movie) || type.conforms(to: .video)
     }
 
+    /// 화면의 모든 영상을 닫는다 (재생목록은 유지)
+    func closeAll() {
+        items.forEach { $0.player.pause() }
+        items.removeAll()
+        soloItemID = nil
+        zoomedItemID = nil
+        rectSwaps.removeAll()
+        isPlaying = false
+        progressModel.fraction = 0
+        abA = nil
+        abB = nil
+        updateTimeObserver()
+        saveSession()
+    }
+
     func remove(_ item: VideoItem) {
         item.player.pause()
         items.removeAll { $0.id == item.id }
@@ -681,6 +707,29 @@ final class PlayerManager: ObservableObject {
     func rotate(_ item: VideoItem) {
         item.rotationQuarters = (item.rotationQuarters + 1) % 4
         objectWillChange.send() // 회전이 화면비를 바꿔 레이아웃 재계산
+    }
+
+    // MARK: - 리프레임 (타일 내부 확대·이동)
+
+    /// 스크롤로 확대 배율을 조정한다 (1~6배). 배율이 1이면 이동도 초기화.
+    func adjustZoom(_ item: VideoItem, by delta: CGFloat) {
+        item.zoomScale = min(max(item.zoomScale + delta, 1), 6)
+        clampPan(item)
+    }
+
+    /// Option+드래그로 보이는 영역을 이동한다. 오프셋은 타일 크기 대비 비율.
+    func setPan(_ item: VideoItem, to offset: CGSize) {
+        item.panOffset = offset
+        clampPan(item)
+    }
+
+    /// 확대 배율 안에서 영상이 화면 밖으로 완전히 벗어나지 않도록 이동을 제한
+    private func clampPan(_ item: VideoItem) {
+        let limit = max(0, (item.zoomScale - 1) / (2 * item.zoomScale))
+        item.panOffset = CGSize(
+            width: min(max(item.panOffset.width, -limit), limit),
+            height: min(max(item.panOffset.height, -limit), limit)
+        )
     }
 
     // MARK: - 스냅샷

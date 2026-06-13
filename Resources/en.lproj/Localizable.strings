@@ -113,3 +113,8 @@
 "전체화면" = "Full screen";
 "확대 해제" = "Exit zoom";
 "이 도움말" = "This help";
+
+/* 리프레임 / 모두 닫기 */
+"모두 닫기" = "Close All";
+"모두 닫기 (⇧⌘W)" = "Close All (⇧⌘W)";
+"확대·이동 초기화" = "Reset zoom & pan";

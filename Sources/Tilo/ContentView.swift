@@ -308,7 +308,10 @@ struct ContentView: View {
                         onZoom: { manager.toggleZoom(item) },
                         onRotate: { manager.rotate(item) },
                         onOffset: { manager.adjustOffset(item, by: $0) },
-                        onResetOffset: { manager.resetOffset(item) }
+                        onResetOffset: { manager.resetOffset(item) },
+                        onZoomDelta: { manager.adjustZoom(item, by: $0) },
+                        onPan: { manager.setPan(item, to: $0) },
+                        onResetReframe: { item.resetReframe() }
                     )
                     .onDrag {
                         manager.draggingItemID = item.id
@@ -348,6 +351,11 @@ struct ContentView: View {
             ControlIconButton(icon: "plus", helpText: "동영상 추가 (⌘O)") {
                 manager.openVideos()
             }
+
+            ControlIconButton(icon: "xmark.square", helpText: "모두 닫기 (⇧⌘W)") {
+                manager.closeAll()
+            }
+            .disabled(manager.items.isEmpty)
 
             barDivider
 

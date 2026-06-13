@@ -12,6 +12,9 @@ struct VideoCell: View {
     var onRotate: (() -> Void)?
     var onOffset: ((Double) -> Void)?
     var onResetOffset: (() -> Void)?
+    var onZoomDelta: ((CGFloat) -> Void)?
+    var onPan: ((CGSize) -> Void)?
+    var onResetReframe: (() -> Void)?
 
     /// 개별 시간 오프셋 한 번 누를 때 이동량(초)
     private let offsetStep = 0.1
@@ -19,18 +22,48 @@ struct VideoCell: View {
     @State private var hovering = false
     @State private var active = true
     @State private var hideTimer = AutoHideTimer()
+    @State private var cellSize: CGSize = .zero
+    @State private var panBase: CGSize?
 
     /// 셀 위에 있으면서 최근에 마우스를 움직였을 때만 컨트롤을 보여준다
     private var showOverlay: Bool { hovering && active }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            PlayerLayerView(player: item.player, fill: fill, rotationQuarters: item.rotationQuarters)
+            PlayerLayerView(
+                player: item.player,
+                fill: fill,
+                rotationQuarters: item.rotationQuarters,
+                zoomScale: item.zoomScale,
+                panOffset: item.panOffset,
+                onZoomDelta: { onZoomDelta?($0) }
+            )
                 .background(Color.black)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { cellSize = geo.size }
+                            .onChange(of: geo.size) { cellSize = $0 }
+                    }
+                )
                 .gesture(
                     TapGesture(count: 2)
                         .onEnded { onZoom?() }
                         .exclusively(before: TapGesture().onEnded { onSolo?() })
+                )
+                // Option+드래그로 확대된 영상의 보이는 영역을 이동 (자리 교환과 분리)
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 2).modifiers(.option)
+                        .onChanged { value in
+                            guard cellSize.width > 0, cellSize.height > 0 else { return }
+                            let base = panBase ?? item.panOffset
+                            if panBase == nil { panBase = base }
+                            onPan?(CGSize(
+                                width: base.width + value.translation.width / cellSize.width,
+                                height: base.height + value.translation.height / cellSize.height
+                            ))
+                        }
+                        .onEnded { _ in panBase = nil }
                 )
 
             if item.loadFailed {
@@ -76,6 +109,17 @@ struct VideoCell: View {
                         helpText: "90° 회전"
                     ) {
                         onRotate?()
+                    }
+                    if item.isReframed {
+                        ControlIconButton(
+                            icon: "arrow.up.left.and.down.right.magnifyingglass",
+                            active: true,
+                            diameter: 26,
+                            fontSize: 12,
+                            helpText: "확대·이동 초기화"
+                        ) {
+                            onResetReframe?()
+                        }
                     }
                     ControlIconButton(
                         icon: "xmark",
@@ -228,6 +272,9 @@ struct PlayerLayerView: NSViewRepresentable {
     let player: AVPlayer
     let fill: Bool
     var rotationQuarters: Int = 0
+    var zoomScale: CGFloat = 1
+    var panOffset: CGSize = .zero
+    var onZoomDelta: ((CGFloat) -> Void)?
 
     func makeNSView(context: Context) -> PlayerNSView {
         let view = PlayerNSView()
@@ -239,6 +286,9 @@ struct PlayerLayerView: NSViewRepresentable {
         nsView.playerLayer.player = player
         nsView.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect
         nsView.rotationQuarters = rotationQuarters
+        nsView.zoomScale = zoomScale
+        nsView.panOffset = panOffset
+        nsView.onZoomDelta = onZoomDelta
         nsView.needsLayout = true
     }
 }
@@ -246,13 +296,16 @@ struct PlayerLayerView: NSViewRepresentable {
 final class PlayerNSView: NSView {
     let playerLayer = AVPlayerLayer()
     var rotationQuarters = 0
+    var zoomScale: CGFloat = 1
+    var panOffset: CGSize = .zero
+    var onZoomDelta: ((CGFloat) -> Void)?
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
         layer = CALayer()
         playerLayer.videoGravity = .resizeAspect
-        // 채우기(crop) 모드에서 영상이 셀 밖으로 넘치지 않도록
+        // 채우기(crop)·확대 모드에서 영상이 셀 밖으로 넘치지 않도록
         playerLayer.masksToBounds = true
         layer?.masksToBounds = true
         layer?.addSublayer(playerLayer)
@@ -261,20 +314,32 @@ final class PlayerNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// 스크롤로 확대 (트랙패드·마우스 휠 모두 scrollingDeltaY)
+    override func scrollWheel(with event: NSEvent) {
+        guard event.scrollingDeltaY != 0 else { return super.scrollWheel(with: event) }
+        // 픽셀 단위(트랙패드)는 작게, 라인 단위(휠)는 크게 들어오므로 정규화
+        let unit: CGFloat = event.hasPreciseScrollingDeltas ? 0.005 : 0.08
+        onZoomDelta?(event.scrollingDeltaY * unit)
+    }
+
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let q = ((rotationQuarters % 4) + 4) % 4
-        // 90°/270° 회전 시 레이어 bounds의 가로·세로를 바꿔 셀을 채운 뒤
-        // 중심을 기준으로 회전한다. videoGravity는 회전 전 bounds 기준으로 동작.
+        // 90°/270° 회전 시 레이어 bounds의 가로·세로를 바꿔 셀을 채운다.
         let swapped = q % 2 != 0
         playerLayer.bounds = CGRect(
             origin: .zero,
             size: swapped ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
         )
-        playerLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        playerLayer.setAffineTransform(CGAffineTransform(rotationAngle: CGFloat(q) * .pi / 2))
+        // 리프레임 이동: 타일 크기 대비 비율을 점 단위로 환산
+        let dx = panOffset.width * bounds.width
+        let dy = -panOffset.height * bounds.height // 레이어 좌표는 y가 위로 증가
+        playerLayer.position = CGPoint(x: bounds.midX + dx, y: bounds.midY + dy)
+        // 회전 후 확대를 적용
+        let t = CGAffineTransform(rotationAngle: CGFloat(q) * .pi / 2).scaledBy(x: zoomScale, y: zoomScale)
+        playerLayer.setAffineTransform(t)
         CATransaction.commit()
     }
 }
