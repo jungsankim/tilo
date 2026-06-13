@@ -290,6 +290,18 @@ final class PlayerManager: ObservableObject {
         }
     }
 
+    /// 스피커 아이콘 클릭으로 전체 음소거. 끄면 직전 볼륨으로 복귀.
+    private var preMuteVolume: Double = 1
+    var isMasterMuted: Bool { masterVolume <= 0.001 }
+    func toggleMasterMute() {
+        if isMasterMuted {
+            masterVolume = preMuteVolume > 0.01 ? preMuteVolume : 1
+        } else {
+            preMuteVolume = masterVolume
+            masterVolume = 0
+        }
+    }
+
     /// A-B 구간반복 지점 (전역 진행률 분수). 둘 다 설정되면 활성.
     @Published var abA: Double?
     @Published var abB: Double?
@@ -470,6 +482,7 @@ final class PlayerManager: ObservableObject {
 
     func removeFromPlaylist(_ entry: PlaylistEntry) {
         playlist.removeAll { $0.id == entry.id }
+        selectedPlaylist.remove(entry.url)
         if let item = items.first(where: { $0.sourceURL.standardizedFileURL == entry.url }) {
             remove(item)
         }
@@ -478,6 +491,51 @@ final class PlayerManager: ObservableObject {
 
     func clearPlaylist() {
         playlist.removeAll()
+        selectedPlaylist.removeAll()
+        saveSession()
+    }
+
+    // MARK: - 재생목록 선택/삭제
+
+    /// 다중 선택 (⌘/⇧ 클릭). 빈 곳 클릭이나 단순 클릭은 단일 선택.
+    @Published var selectedPlaylist: Set<URL> = []
+    private var lastClickedPlaylistIndex: Int?
+
+    func clickPlaylist(_ entry: PlaylistEntry, index: Int, command: Bool, shift: Bool) {
+        if shift, let anchor = lastClickedPlaylistIndex, anchor < playlist.count {
+            let lo = min(anchor, index), hi = max(anchor, index)
+            selectedPlaylist = Set(playlist[lo...hi].map { $0.url })
+        } else if command {
+            if selectedPlaylist.contains(entry.url) {
+                selectedPlaylist.remove(entry.url)
+            } else {
+                selectedPlaylist.insert(entry.url)
+            }
+            lastClickedPlaylistIndex = index
+        } else {
+            selectedPlaylist = [entry.url]
+            lastClickedPlaylistIndex = index
+        }
+    }
+
+    func clearPlaylistSelection() {
+        selectedPlaylist.removeAll()
+    }
+
+    /// 선택된 항목들을 목록에서 삭제하고, 화면에 올라가 있으면 같이 내린다
+    func deleteSelectedFromPlaylist() {
+        guard !selectedPlaylist.isEmpty else { return }
+        let targets = selectedPlaylist
+        for item in items where targets.contains(item.sourceURL.standardizedFileURL) {
+            item.player.pause()
+        }
+        items.removeAll { targets.contains($0.sourceURL.standardizedFileURL) }
+        playlist.removeAll { targets.contains($0.url) }
+        selectedPlaylist.removeAll()
+        if items.isEmpty { isPlaying = false; progressModel.fraction = 0 }
+        soloItemID = items.contains { $0.id == soloItemID } ? soloItemID : nil
+        zoomedItemID = items.contains { $0.id == zoomedItemID } ? zoomedItemID : nil
+        updateTimeObserver()
         saveSession()
     }
 

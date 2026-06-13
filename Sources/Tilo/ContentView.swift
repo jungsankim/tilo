@@ -6,6 +6,7 @@ struct ContentView: View {
     @AppStorage("fillMode") private var fillMode = true
     @AppStorage("playlistVisible") private var playlistVisible = true
     @AppStorage("gridColumns") private var gridColumns = 0 // 0 = 자동 모자이크
+    @AppStorage("restoreSessionEnabled") private var restoreSessionEnabled = true
     @State private var controlsVisible = true
     @State private var overControls = false
     @State private var dropTargeted = false
@@ -79,8 +80,8 @@ struct ContentView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
-            // 실행 시 파일 인자가 없으면 마지막 세션을 복원
-            manager.restoreSession()
+            // 설정이 켜져 있고 파일 인자가 없으면 마지막 세션을 복원
+            if restoreSessionEnabled { manager.restoreSession() }
         }
     }
 
@@ -468,27 +469,26 @@ struct ContentView: View {
 
     private struct VolumeButton: View {
         @ObservedObject var manager: PlayerManager
-        @State private var showPopover = false
 
         private var icon: String {
-            if manager.masterVolume <= 0.001 { return "speaker.slash.fill" }
+            if manager.isMasterMuted { return "speaker.slash.fill" }
             if manager.masterVolume < 0.5 { return "speaker.wave.1.fill" }
             return "speaker.wave.2.fill"
         }
 
         var body: some View {
-            ControlIconButton(icon: icon, helpText: "볼륨") {
-                showPopover.toggle()
-            }
-            .popover(isPresented: $showPopover, arrowEdge: .top) {
-                HStack(spacing: 8) {
-                    Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $manager.masterVolume, in: 0...1)
-                        .frame(width: 140)
-                    Image(systemName: "speaker.wave.3.fill").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                // 아이콘 클릭 = 음소거 토글 (다시 누르면 직전 볼륨 복귀)
+                ControlIconButton(
+                    icon: icon,
+                    active: manager.isMasterMuted,
+                    helpText: manager.isMasterMuted ? "음소거 해제" : "음소거"
+                ) {
+                    manager.toggleMasterMute()
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                Slider(value: $manager.masterVolume, in: 0...1)
+                    .controlSize(.mini)
+                    .frame(width: 64)
             }
         }
     }
