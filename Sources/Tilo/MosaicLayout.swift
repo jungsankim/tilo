@@ -180,7 +180,8 @@ enum MosaicLayout {
 
         // 중간 블록은 나중에 c개 열(화면비/c)이나 r개 행(화면비×r)으로
         // 합쳐질 수 있으므로, 화면비의 약수·배수에 가까워도 좋은 후보다.
-        let anchors: [CGFloat] = [0.25, 1 / 3, 0.5, 1, 2, 3, 4].map { target * $0 }
+        let multipliers: [CGFloat] = [0.25, 1.0 / 3.0, 0.5, 1.0, 2.0, 3.0, 4.0]
+        let anchors = multipliers.map { target * $0 }
         func distance(to combined: CGFloat) -> CGFloat {
             anchors.map { abs(log(combined / $0)) }.min()!
         }
