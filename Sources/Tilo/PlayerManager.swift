@@ -70,6 +70,14 @@ final class VideoItem: Identifiable, ObservableObject {
         self.sourceURL = sourceURL ?? url
         self.player = AVPlayer(url: url)
         player.actionAtItemEnd = .pause
+        // 충분히 버퍼링될 때까지 기다려 스톨(끊김)을 줄인다
+        player.automaticallyWaitsToMinimizeStalling = true
+        // 네트워크(NAS/SMB) 파일은 대역폭을 여러 스트림이 나눠 쓰므로,
+        // 순간적인 정체를 흡수하도록 미리 더 많이 버퍼링한다.
+        // 로컬 파일은 기본값(0=자동)으로 둬서 메모리를 아낀다.
+        if Self.isNetworkURL(url) {
+            player.currentItem?.preferredForwardBufferDuration = 10
+        }
         loadAspect()
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
@@ -184,6 +192,14 @@ final class VideoItem: Identifiable, ObservableObject {
             || abs(appliedResolutionCap.height - size.height) > 64 else { return }
         appliedResolutionCap = size
         currentItem.preferredMaximumResolution = size
+    }
+
+    /// SMB/AFP/NFS로 마운트된 공유는 file:// URL이지만 볼륨이 로컬이 아니다.
+    /// 비-파일 URL(http 등)도 네트워크로 본다.
+    static func isNetworkURL(_ url: URL) -> Bool {
+        guard url.isFileURL else { return true }
+        let isLocal = (try? url.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal
+        return isLocal == false
     }
 
     private func loadAspect() {
