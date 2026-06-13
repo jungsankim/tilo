@@ -118,3 +118,12 @@
 "모두 닫기" = "Close All";
 "모두 닫기 (⇧⌘W)" = "Close All (⇧⌘W)";
 "확대·이동 초기화" = "Reset zoom & pan";
+
+/* 인터페이스 정리 (더보기 메뉴) */
+"더보기" = "More";
+"시간 정렬" = "Time align";
+"정렬 초기화" = "Reset alignment";
+"원본 비율 유지" = "Keep original aspect";
+"구간반복" = "A-B loop";
+"뒤로" = "Back";
+"앞으로" = "Forward";

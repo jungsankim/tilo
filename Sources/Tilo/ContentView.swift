@@ -352,11 +352,6 @@ struct ContentView: View {
                 manager.openVideos()
             }
 
-            ControlIconButton(icon: "xmark.square", helpText: "모두 닫기 (⇧⌘W)") {
-                manager.closeAll()
-            }
-            .disabled(manager.items.isEmpty)
-
             barDivider
 
             ControlIconButton(
@@ -384,47 +379,6 @@ struct ContentView: View {
 
             VolumeButton(manager: manager)
 
-            barDivider
-
-            ControlIconButton(
-                icon: "repeat",
-                active: manager.loopEnabled,
-                helpText: manager.loopEnabled ? "반복재생 끄기 (L)" : "반복재생 켜기 (L)"
-            ) {
-                manager.loopEnabled.toggle()
-            }
-
-            ControlIconButton(
-                text: "AB",
-                tint: manager.abB != nil ? .accentColor : manager.abA != nil ? .orange : nil,
-                helpText: manager.abA == nil ? "구간반복: 시작점 설정 (R)"
-                    : manager.abB == nil ? "구간반복: 끝점 설정 (R)"
-                    : "구간반복 해제 (R)"
-            ) {
-                manager.cycleABLoop()
-            }
-            .disabled(manager.items.isEmpty)
-
-            barDivider
-
-            ControlIconButton(
-                icon: manager.subtitlesEnabled ? "captions.bubble.fill" : "captions.bubble",
-                active: manager.subtitlesEnabled,
-                helpText: manager.subtitlesEnabled ? "자막 끄기 (C)" : "자막 켜기 (C)"
-            ) {
-                manager.subtitlesEnabled.toggle()
-            }
-
-            ControlIconButton(
-                icon: fillMode ? "aspectratio.fill" : "aspectratio",
-                active: fillMode,
-                helpText: fillMode ? "원본 비율로 보기 (A)" : "화면 꽉 채우기 (A)"
-            ) {
-                fillMode.toggle()
-            }
-
-            barDivider
-
             ControlIconButton(
                 icon: "sidebar.trailing",
                 active: playlistVisible,
@@ -436,10 +390,14 @@ struct ContentView: View {
             ControlIconButton(icon: "arrow.up.left.and.arrow.down.right", helpText: "전체화면 (F)") {
                 NSApp.keyWindow?.toggleFullScreen(nil)
             }
+
+            barDivider
+
+            MoreButton(manager: manager)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: 760)
+        .frame(maxWidth: 680)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
@@ -447,6 +405,64 @@ struct ContentView: View {
         )
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
+    }
+
+    /// 컨트롤 바의 "더보기(•••)" — 가끔 쓰는 토글·동작을 글자 라벨로 모은다
+    private struct MoreButton: View {
+        @ObservedObject var manager: PlayerManager
+        @AppStorage("fillMode") private var fillMode = true
+        @AppStorage("gridColumns") private var gridColumns = 0
+        @State private var show = false
+
+        var body: some View {
+            ControlIconButton(icon: "ellipsis", active: show, helpText: "더보기") {
+                show.toggle()
+            }
+            .popover(isPresented: $show, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("반복재생", isOn: Binding(
+                        get: { manager.loopEnabled }, set: { manager.loopEnabled = $0 }))
+                    Button {
+                        manager.cycleABLoop()
+                    } label: {
+                        HStack {
+                            Text("구간반복")
+                            Spacer()
+                            Text(manager.abB != nil ? "A–B" : manager.abA != nil ? "A…" : "")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(manager.items.isEmpty)
+
+                    Divider().padding(.vertical, 4)
+
+                    Toggle("자막", isOn: Binding(
+                        get: { manager.subtitlesEnabled }, set: { manager.subtitlesEnabled = $0 }))
+                    Toggle("원본 비율 유지", isOn: Binding(
+                        get: { !fillMode }, set: { fillMode = !$0 }))
+                    Picker("화면 배치", selection: $gridColumns) {
+                        Text("자동 모자이크").tag(0)
+                        Text("2 × 2").tag(2)
+                        Text("3 × 3").tag(3)
+                        Text("4 × 4").tag(4)
+                    }
+                    .pickerStyle(.menu)
+
+                    Divider().padding(.vertical, 4)
+
+                    Button("모든 영상 동기화") { manager.seekAll(to: manager.progress) }
+                        .disabled(manager.items.isEmpty)
+                    Button("스냅샷 저장") { manager.saveSnapshot() }
+                        .disabled(manager.items.isEmpty)
+                    Button("모두 닫기") { manager.closeAll() }
+                        .disabled(manager.items.isEmpty)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 210)
+                .padding(14)
+            }
+        }
     }
 
     private struct VolumeButton: View {

@@ -24,9 +24,10 @@ struct VideoCell: View {
     @State private var hideTimer = AutoHideTimer()
     @State private var cellSize: CGSize = .zero
     @State private var panBase: CGSize?
+    @State private var showMenu = false
 
-    /// 셀 위에 있으면서 최근에 마우스를 움직였을 때만 컨트롤을 보여준다
-    private var showOverlay: Bool { hovering && active }
+    /// 셀 위에 있으면서 최근에 마우스를 움직였을 때(또는 더보기 메뉴가 열렸을 때) 컨트롤 표시
+    private var showOverlay: Bool { (hovering && active) || showMenu }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -103,31 +104,16 @@ struct VideoCell: View {
                         item.isMuted.toggle()
                     }
                     ControlIconButton(
-                        icon: "rotate.right",
+                        icon: "ellipsis",
+                        active: showMenu,
                         diameter: 26,
                         fontSize: 12,
-                        helpText: "90° 회전"
+                        helpText: "더보기"
                     ) {
-                        onRotate?()
+                        showMenu.toggle()
                     }
-                    if item.isReframed {
-                        ControlIconButton(
-                            icon: "arrow.up.left.and.down.right.magnifyingglass",
-                            active: true,
-                            diameter: 26,
-                            fontSize: 12,
-                            helpText: "확대·이동 초기화"
-                        ) {
-                            onResetReframe?()
-                        }
-                    }
-                    ControlIconButton(
-                        icon: "xmark",
-                        diameter: 26,
-                        fontSize: 12,
-                        helpText: "영상 제거"
-                    ) {
-                        onRemove()
+                    .popover(isPresented: $showMenu, arrowEdge: .bottom) {
+                        cellMenu.frame(width: 200).padding(14)
                     }
                 }
                 .padding(3)
@@ -138,39 +124,17 @@ struct VideoCell: View {
         }
         .overlay(alignment: .topLeading) {
             if showOverlay {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.sourceURL.lastPathComponent)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-
-                    // 동기화 미세 정렬: 이 영상만 앞뒤로 밀기
-                    HStack(spacing: 2) {
-                        ControlIconButton(icon: "minus", diameter: 22, fontSize: 10, helpText: "이 영상만 뒤로 밀기") {
-                            onOffset?(-offsetStep)
-                        }
-                        Text(offsetLabel)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.9))
-                            .frame(minWidth: 52)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onResetOffset?() }
-                            .help("클릭하면 정렬 초기화")
-                        ControlIconButton(icon: "plus", diameter: 22, fontSize: 10, helpText: "이 영상만 앞으로 밀기") {
-                            onOffset?(offsetStep)
-                        }
-                    }
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-                }
-                .padding(10)
-                .frame(maxWidth: 260, alignment: .leading)
-                .transition(.opacity)
+                Text(item.sourceURL.lastPathComponent)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(10)
+                    .frame(maxWidth: 220, alignment: .leading)
+                    .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
@@ -250,6 +214,42 @@ struct VideoCell: View {
         return String(format: "%+.1fs", v)
     }
 
+    /// 개별 영상 "더보기" 팝오버 내용 (시간 정렬·회전·확대 초기화·제거)
+    private var cellMenu: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("시간 정렬")
+                Spacer()
+                ControlIconButton(icon: "minus", diameter: 22, fontSize: 10, helpText: "뒤로") {
+                    onOffset?(-offsetStep)
+                }
+                Text(offsetLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 46)
+                ControlIconButton(icon: "plus", diameter: 22, fontSize: 10, helpText: "앞으로") {
+                    onOffset?(offsetStep)
+                }
+            }
+            if abs(item.timeOffset) > 0.001 {
+                Button("정렬 초기화") { onResetOffset?() }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            Button("90° 회전") { onRotate?() }.buttonStyle(.plain)
+            if item.isReframed {
+                Button("확대·이동 초기화") { onResetReframe?() }.buttonStyle(.plain)
+            }
+
+            Divider()
+
+            Button("영상 제거", role: .destructive) { onRemove() }.buttonStyle(.plain)
+        }
+        .font(.callout)
+    }
+
     /// 마우스가 움직이면 컨트롤을 보여주고 숨김 타이머를 다시 건다
     private func bump() {
         if !active {
@@ -261,7 +261,7 @@ struct VideoCell: View {
         hideTimer.task?.cancel()
         hideTimer.task = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled, !item.isScrubbing else { return }
+            guard !Task.isCancelled, !item.isScrubbing, !showMenu else { return }
             active = false
             item.progressActive = false
         }
