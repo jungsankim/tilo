@@ -5,6 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 빨간 닫기 버튼으로 창을 닫으면 앱도 확실하게 종료한다
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        PlayerManager.shared.applicationShouldTerminate()
+    }
+
     /// Finder에서 더블클릭하거나 "다음으로 열기 → Tilo"로 연 파일
     func application(_ application: NSApplication, open urls: [URL]) {
         PlayerManager.shared.add(urls: urls)
@@ -50,6 +54,13 @@ struct TiloApp: App {
             }
 
             CommandGroup(replacing: .newItem) {
+                Button("새 프로젝트") { manager.newProject() }
+                    .keyboardShortcut("n")
+                Button("프로젝트 열기…") { manager.openProject() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("동영상 열기…") { manager.openVideos() }
                     .keyboardShortcut("o")
 
@@ -68,9 +79,20 @@ struct TiloApp: App {
 
                 Divider()
 
-                Button("스냅샷 저장") { manager.saveSnapshot() }
+                Button("프로젝트 저장") { manager.saveProject() }
+                    .keyboardShortcut("s")
+                Button("프로젝트를 다른 이름으로 저장…") { manager.saveProjectAs() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("스냅샷 저장") { manager.saveSnapshot() }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
                     .disabled(manager.items.isEmpty)
+
+                Button("모자이크 영상 내보내기…") { manager.exportMosaicVideo() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(manager.items.isEmpty || manager.isExportingMosaic)
 
                 Button("모두 닫기") { manager.closeAll() }
                     .keyboardShortcut("w", modifiers: [.command, .shift])
@@ -134,7 +156,7 @@ struct TiloApp: App {
                     set: { manager.subtitlesEnabled = $0 }
                 ))
                 .keyboardShortcut("c", modifiers: [])
-                Toggle("재생목록", isOn: $playlistVisible)
+                Toggle("사이드바", isOn: $playlistVisible)
                     .keyboardShortcut("p", modifiers: [])
 
                 Picker("화면 배치", selection: $gridColumns) {

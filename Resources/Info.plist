@@ -39,6 +39,22 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>Tilo Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.jungsankim.tilo.project</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>tilo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>Video</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
@@ -54,7 +70,7 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Matroska / WebM Video</string>
+			<string>Additional Video Formats</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
@@ -63,7 +79,56 @@
 			<array>
 				<string>mkv</string>
 				<string>webm</string>
+				<string>wmv</string>
+				<string>asf</string>
+				<string>flv</string>
+				<string>mpg</string>
+				<string>mpeg</string>
+				<string>mpe</string>
+				<string>vob</string>
+				<string>ts</string>
+				<string>mts</string>
+				<string>m2ts</string>
+				<string>ogv</string>
+				<string>3gp</string>
+				<string>3g2</string>
+				<string>mxf</string>
+				<string>divx</string>
+				<string>f4v</string>
+				<string>rm</string>
+				<string>rmvb</string>
+				<string>m1v</string>
+				<string>m2v</string>
+				<string>dv</string>
+				<string>y4m</string>
+				<string>h264</string>
+				<string>264</string>
+				<string>hevc</string>
+				<string>h265</string>
 			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.jungsankim.tilo.project</string>
+			<key>UTTypeDescription</key>
+			<string>Tilo Project</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>tilo</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.tilo.project+json</string>
+			</dict>
 		</dict>
 	</array>
 </dict>

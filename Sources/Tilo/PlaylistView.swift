@@ -6,6 +6,12 @@ struct PlaylistView: View {
     @EnvironmentObject var manager: PlayerManager
 
     private var hasSelection: Bool { !manager.selectedPlaylist.isEmpty }
+    private var replacementEntry: PlaylistEntry? {
+        guard manager.selectedPlaylist.count == 1,
+              let url = manager.selectedPlaylist.first
+        else { return nil }
+        return manager.playlist.first { $0.url == url }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,8 +28,7 @@ struct PlaylistView: View {
                 .opacity(0).frame(width: 0, height: 0)
                 .disabled(!hasSelection)
         }
-        .frame(width: 280)
-        .background(.regularMaterial)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
@@ -39,6 +44,19 @@ struct PlaylistView: View {
             Spacer()
             ControlIconButton(icon: "plus", diameter: 24, fontSize: 11, helpText: "동영상 추가 (⌘O)") {
                 manager.openVideos()
+            }
+            if let entry = replacementEntry {
+                ControlIconButton(
+                    icon: "arrow.left.arrow.right",
+                    diameter: 24,
+                    fontSize: 11,
+                    helpText: manager.selectedItem == nil
+                        ? "먼저 모자이크에서 교체할 영상을 선택하세요"
+                        : "선택 영상 교체"
+                ) {
+                    manager.replaceSelectedItem(with: entry)
+                }
+                .disabled(!manager.canReplaceSelectedItem(with: entry))
             }
             if hasSelection {
                 ControlIconButton(icon: "trash", diameter: 24, fontSize: 11, helpText: "선택 삭제 (Delete)") {
@@ -80,10 +98,12 @@ struct PlaylistView: View {
                         entry: entry,
                         isOnStage: manager.isOnStage(entry),
                         isSelected: manager.selectedPlaylist.contains(entry.url),
+                        canReplace: manager.canReplaceSelectedItem(with: entry),
                         onSelect: { command, shift in
                             manager.clickPlaylist(entry, index: index, command: command, shift: shift)
                         },
                         onToggle: { manager.toggleOnStage(entry) },
+                        onReplace: { manager.replaceSelectedItem(with: entry) },
                         onDelete: { manager.removeFromPlaylist(entry) }
                     )
                 }
@@ -101,8 +121,10 @@ private struct PlaylistRow: View {
     let entry: PlaylistEntry
     let isOnStage: Bool
     let isSelected: Bool
+    let canReplace: Bool
     let onSelect: (_ command: Bool, _ shift: Bool) -> Void
     let onToggle: () -> Void
+    let onReplace: () -> Void
     let onDelete: () -> Void
 
     @State private var hovering = false
@@ -129,6 +151,14 @@ private struct PlaylistRow: View {
             Spacer(minLength: 4)
 
             if hovering {
+                if canReplace {
+                    Button(action: onReplace) {
+                        Image(systemName: "arrow.left.arrow.right")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("선택 영상 교체")
+                }
                 // 화면에 올리기/내리기
                 Button(action: onToggle) {
                     Image(systemName: isOnStage ? "rectangle.badge.minus" : "rectangle.badge.plus")
@@ -162,6 +192,9 @@ private struct PlaylistRow: View {
             onSelect(flags.contains(.command), flags.contains(.shift))
         }
         .contextMenu {
+            if canReplace {
+                Button("선택 영상 교체", action: onReplace)
+            }
             if isOnStage {
                 Button("화면에서 제거", action: onToggle)
             } else {

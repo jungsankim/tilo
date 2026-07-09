@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists mpv; then
+    echo "오류: libmpv 개발 파일이 필요합니다. 먼저 'brew install mpv'를 실행하세요." >&2
+    exit 1
+fi
+
 swift build -c release
 
 APP=build/Tilo.app

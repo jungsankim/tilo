@@ -45,6 +45,7 @@ struct ControlIconButton: View {
         .opacity(isEnabled ? 1 : 0.35)
         .onHover { hovering = $0 }
         .help(helpText)
+        .accessibilityLabel(helpText)
         .animation(.easeInOut(duration: 0.12), value: hovering)
     }
 }

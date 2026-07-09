@@ -10,8 +10,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Install media dependencies
+        run: brew install mpv ffmpeg
       - name: Build
         run: swift build -c release
+      - name: Test
+        run: swift test
       - name: Lint localization files
         run: |
           for f in Resources/*.lproj/Localizable.strings; do

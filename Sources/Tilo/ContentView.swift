@@ -3,11 +3,15 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var manager: PlayerManager
+    @Environment(\.displayScale) private var displayScale
     @AppStorage("fillMode") private var fillMode = true
     @AppStorage("playlistVisible") private var playlistVisible = true
     @AppStorage("gridColumns") private var gridColumns = 0 // 0 = 자동 모자이크
     @AppStorage("restoreSessionEnabled") private var restoreSessionEnabled = true
+    @AppStorage("controlsHideDelay") private var controlsHideDelay = 1.5
     @State private var controlsVisible = true
+    @State private var controlsManuallyHidden = false
+    @State private var controlsManualHideDate = Date.distantPast
     @State private var overControls = false
     @State private var dropTargeted = false
     @State private var showShortcuts = false
@@ -15,7 +19,9 @@ struct ContentView: View {
 
     /// 일시정지 중이거나 영상이 없거나 컨트롤 바 위에 마우스가 있으면 숨기지 않는다
     private var showControls: Bool {
-        controlsVisible || !manager.isPlaying || manager.items.isEmpty || overControls
+        if manager.items.isEmpty { return true }
+        if controlsManuallyHidden { return false }
+        return controlsVisible || !manager.isPlaying || overControls
     }
 
     var body: some View {
@@ -35,25 +41,36 @@ struct ContentView: View {
             .onContinuousHover { _ in bumpActivity() }
             .overlay(alignment: .top) {
                 VStack(spacing: 6) {
+                    if let progress = manager.mosaicExportProgress {
+                        exportToast(progress)
+                    }
                     if !manager.remuxing.isEmpty {
                         let status = manager.remuxing
                             .sorted { $0.key < $1.key }
-                            .map { "\($0.key) \($0.value)%" }
+                            .map { "\(URL(fileURLWithPath: $0.key).lastPathComponent) \($0.value)%" }
                             .joined(separator: ", ")
-                        toast(String(localized: "MP4로 변환 중: \(status)"), systemImage: "arrow.triangle.2.circlepath")
+                        toast(String(localized: "재생 호환 처리 중: \(status)"), systemImage: "arrow.triangle.2.circlepath")
                     }
                     if let notice = manager.notice {
                         toast(notice, systemImage: "exclamationmark.triangle")
                     }
                 }
                 .padding(.top, 14)
+                .animation(.easeInOut(duration: 0.2), value: manager.mosaicExportProgress)
                 .animation(.easeInOut(duration: 0.2), value: manager.remuxing)
                 .animation(.easeInOut(duration: 0.2), value: manager.notice)
+            }
+            .overlay(alignment: .topLeading) {
+                if manager.currentProjectURL != nil {
+                    projectChip
+                        .opacity(showControls ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.2), value: showControls)
+                }
             }
 
             if playlistVisible {
                 Divider()
-                PlaylistView()
+                SidebarView()
                     .transition(.move(edge: .trailing))
             }
         }
@@ -74,15 +91,69 @@ struct ContentView: View {
         .onChange(of: manager.isPlaying) { playing in
             if playing { scheduleHide() }
         }
+        .onChange(of: fillMode) { _ in updateProjectViewSettings() }
+        .onChange(of: playlistVisible) { _ in updateProjectViewSettings() }
+        .onChange(of: gridColumns) { _ in updateProjectViewSettings() }
+        .onChange(of: manager.pendingProjectViewSettings) { settings in
+            guard let settings else { return }
+            fillMode = settings.fillMode
+            playlistVisible = settings.playlistVisible
+            gridColumns = settings.gridColumns
+            manager.consumePendingProjectViewSettings()
+            updateWindowTitle()
+        }
+        .onChange(of: manager.currentProjectURL) { _ in updateWindowTitle() }
+        .onChange(of: manager.isProjectEdited) { _ in updateWindowTitle() }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             handleDrop(providers)
         }
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            if let settings = manager.pendingProjectViewSettings {
+                fillMode = settings.fillMode
+                playlistVisible = settings.playlistVisible
+                gridColumns = settings.gridColumns
+                manager.consumePendingProjectViewSettings()
+            }
+            manager.updateProjectViewSettings(
+                fillMode: fillMode,
+                playlistVisible: playlistVisible,
+                gridColumns: gridColumns,
+                markEdited: false
+            )
             // 설정이 켜져 있고 파일 인자가 없으면 마지막 세션을 복원
             if restoreSessionEnabled { manager.restoreSession() }
+            updateWindowTitle()
         }
+    }
+
+    private var projectChip: some View {
+        Label(
+            manager.projectDisplayName + (manager.isProjectEdited ? " •" : ""),
+            systemImage: "doc"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.leading, 78)
+        .padding(.top, 12)
+        .allowsHitTesting(false)
+    }
+
+    private func updateProjectViewSettings() {
+        manager.updateProjectViewSettings(
+            fillMode: fillMode,
+            playlistVisible: playlistVisible,
+            gridColumns: gridColumns
+        )
+    }
+
+    private func updateWindowTitle() {
+        NSApp.keyWindow?.title = manager.projectWindowTitle
     }
 
     private var shortcutsOverlay: some View {
@@ -98,9 +169,11 @@ struct ContentView: View {
             ("S", String(localized: "모든 영상 동기화")),
             ("A", String(localized: "꽉 채우기 / 원본 비율")),
             ("C", String(localized: "자막")),
-            ("P", String(localized: "재생목록")),
+            ("P", String(localized: "사이드바")),
+            ("H", String(localized: "컨트롤 막대 숨기기 / 보기")),
             ("F", String(localized: "전체화면")),
-            ("⇧⌘S", String(localized: "스냅샷 저장")),
+            ("⌥⌘S", String(localized: "스냅샷 저장")),
+            ("⇧⌘E", String(localized: "모자이크 영상 내보내기")),
             ("Esc", String(localized: "확대 해제")),
             ("?", String(localized: "이 도움말")),
         ]
@@ -151,8 +224,31 @@ struct ContentView: View {
             .transition(.opacity)
     }
 
+    private func exportToast(_ progress: Int) -> some View {
+        HStack(spacing: 9) {
+            Label(
+                String(localized: "모자이크 영상 내보내는 중: \(progress)%"),
+                systemImage: "square.and.arrow.up"
+            )
+            Button("취소") { manager.cancelMosaicExport() }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .transition(.opacity)
+    }
+
     /// 마우스가 움직이면 컨트롤 바를 보여주고 숨김 타이머를 다시 건다
     private func bumpActivity() {
+        if controlsManuallyHidden {
+            // 버튼이 사라지며 발생하는 즉시 hover 이벤트는 무시하고,
+            // 그 다음 실제 마우스 움직임에서 다시 표시한다.
+            guard Date().timeIntervalSince(controlsManualHideDate) > 0.2 else { return }
+            controlsManuallyHidden = false
+        }
         if !controlsVisible { controlsVisible = true }
         // 마우스 이벤트마다 Task를 만들지 않도록 0.4초 간격으로만 갱신
         guard Date().timeIntervalSince(hideTimer.lastSchedule) > 0.4 else { return }
@@ -163,12 +259,33 @@ struct ContentView: View {
         hideTimer.lastSchedule = Date()
         hideTimer.task?.cancel()
         hideTimer.task = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            let delay = UInt64(min(max(controlsHideDelay, 0.5), 5) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
             if manager.isPlaying, !overControls, !manager.isScrubbing {
                 controlsVisible = false
                 NSCursor.setHiddenUntilMouseMoves(true)
             }
+        }
+    }
+
+    private func hideControlsImmediately() {
+        guard !manager.items.isEmpty else { return }
+        hideTimer.task?.cancel()
+        controlsVisible = false
+        controlsManuallyHidden = true
+        controlsManualHideDate = Date()
+        overControls = false
+        NSCursor.setHiddenUntilMouseMoves(true)
+    }
+
+    private func toggleControlsVisibility() {
+        if controlsManuallyHidden {
+            controlsManuallyHidden = false
+            controlsVisible = true
+            scheduleHide()
+        } else {
+            hideControlsImmediately()
         }
     }
 
@@ -185,14 +302,25 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button {
-                manager.openVideos()
-            } label: {
-                Label("동영상 열기", systemImage: "folder")
-                    .padding(.horizontal, 6)
+            HStack(spacing: 10) {
+                Button {
+                    manager.openVideos()
+                } label: {
+                    Label("동영상 열기", systemImage: "film")
+                        .padding(.horizontal, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button {
+                    manager.openProject()
+                } label: {
+                    Label("프로젝트 열기", systemImage: "doc")
+                        .padding(.horizontal, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
 
             Text("또는 동영상 파일이나 폴더를 창에 끌어다 놓으세요")
                 .font(.caption)
@@ -217,6 +345,8 @@ struct ContentView: View {
             .keyboardShortcut(.escape, modifiers: [])
             Button("") { showShortcuts.toggle() }
                 .keyboardShortcut("/", modifiers: .shift) // "?"
+            Button("") { toggleControlsVisibility() }
+                .keyboardShortcut("h", modifiers: [])
             ForEach(0..<10, id: \.self) { digit in
                 Button("") { manager.seekAll(to: Double(digit) / 10) }
                     .keyboardShortcut(KeyEquivalent(Character("\(digit)")), modifiers: [])
@@ -262,12 +392,16 @@ struct ContentView: View {
         }
     }
 
-    /// 타일 크기(레티나 ×2)에 맞춰 각 영상의 디코딩 해상도를 제한한다.
+    /// 타일의 실제 화면 픽셀 크기에 맞춰 각 영상의 디코딩 해상도를 제한한다.
     /// 적용은 매니저 쪽에서 디바운스된다.
     private func applyResolutionCaps(_ layout: [(item: VideoItem, rect: CGRect)]) {
-        let scale: CGFloat = 2
+        // 외부 1x 모니터에서는 2x로 과도하게 디코딩하지 않는다.
+        let scale = min(max(displayScale, 1), 2)
         let sizes = Dictionary(uniqueKeysWithValues: layout.map {
-            ($0.item.id, CGSize(width: $0.rect.width * scale, height: $0.rect.height * scale))
+            ($0.item.id, CGSize(
+                width: ($0.rect.width * scale).rounded(),
+                height: ($0.rect.height * scale).rounded()
+            ))
         })
         manager.scheduleResolutionCaps(sizes)
     }
@@ -303,16 +437,22 @@ struct ContentView: View {
                         item: item,
                         fill: isZoomed ? false : fillMode,
                         isSoloed: manager.soloItemID == item.id,
+                        isSelected: manager.selectedItemID == item.id,
                         showSubtitles: manager.subtitlesEnabled,
+                        subtitleScale: manager.subtitleScale,
                         onRemove: { manager.remove(item) },
-                        onSolo: isZoomed ? nil : { manager.toggleSolo(item) },
+                        onSelect: { manager.select(item) },
+                        onSolo: { manager.toggleSolo(item) },
                         onZoom: { manager.toggleZoom(item) },
                         onRotate: { manager.rotate(item) },
                         onOffset: { manager.adjustOffset(item, by: $0) },
                         onResetOffset: { manager.resetOffset(item) },
                         onScrollZoom: { manager.adjustZoom(item, by: $0, focus: $1) },
                         onPan: { manager.setPan(item, to: $0) },
-                        onResetReframe: { item.resetReframe() }
+                        onResetReframe: {
+                            item.resetReframe()
+                            manager.markProjectEdited()
+                        }
                     )
                     .onDrag {
                         manager.draggingItemID = item.id
@@ -383,7 +523,7 @@ struct ContentView: View {
             ControlIconButton(
                 icon: "sidebar.trailing",
                 active: playlistVisible,
-                helpText: "재생목록 (P)"
+                helpText: "사이드바 (P)"
             ) {
                 playlistVisible.toggle()
             }
@@ -414,10 +554,20 @@ struct ContentView: View {
             .disabled(manager.items.isEmpty)
 
             MoreButton(manager: manager)
+
+            ControlIconButton(
+                icon: "chevron.down",
+                diameter: 28,
+                fontSize: 11,
+                helpText: "컨트롤 막대 바로 숨기기 (H)"
+            ) {
+                hideControlsImmediately()
+            }
+            .disabled(manager.items.isEmpty)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: 680)
+        .frame(maxWidth: 720)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
@@ -460,6 +610,12 @@ struct ContentView: View {
                         .disabled(manager.items.isEmpty)
                     Button("스냅샷 저장") { manager.saveSnapshot() }
                         .disabled(manager.items.isEmpty)
+                    if manager.isExportingMosaic {
+                        Button("영상 내보내기 취소") { manager.cancelMosaicExport() }
+                    } else {
+                        Button("모자이크 영상 내보내기…") { manager.exportMosaicVideo() }
+                            .disabled(manager.items.isEmpty)
+                    }
                     Button("모두 닫기") { manager.closeAll() }
                         .disabled(manager.items.isEmpty)
                 }
@@ -497,7 +653,7 @@ struct ContentView: View {
     }
 
     private struct GlobalSeekSlider: View {
-        let manager: PlayerManager
+        @ObservedObject var manager: PlayerManager
         @ObservedObject var progress: PlaybackProgress
         var markA: Double?
         var markB: Double?

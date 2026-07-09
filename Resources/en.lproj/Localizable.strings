@@ -40,6 +40,11 @@
 /* 변환 토스트 */
 "MP4로 변환 중: %@" = "Converting to MP4: %@";
 "MKV/WebM 재생에는 ffmpeg가 필요합니다 — 터미널에서 brew install ffmpeg" = "Playing MKV/WebM requires ffmpeg — run: brew install ffmpeg";
+"호환 변환에는 ffmpeg가 필요합니다 — 터미널에서 brew install ffmpeg" = "Compatibility conversion requires ffmpeg — run: brew install ffmpeg";
+"%@: 호환 형식으로 변환합니다" = "%@: converting to a compatible format";
+"%@: 직접 재생에 실패해 호환 변환을 시도합니다" = "%@: direct playback failed; trying compatibility conversion";
+"호환 변환 도구가 없어 재생할 수 없습니다" = "Cannot play because the compatibility converter is unavailable";
+"파일이 손상됐거나 지원되지 않는 스트림입니다" = "The file is damaged or contains an unsupported stream";
 "%@: %@ 코덱은 macOS에서 재생할 수 없습니다 (재인코딩 필요)" = "%1$@: the %2$@ codec cannot be played on macOS (re-encoding required)";
 "%@ 변환 실패%@ — 로그: ~/Library/Logs/Tilo/remux.log" = "%1$@ conversion failed%2$@ — log: ~/Library/Logs/Tilo/remux.log";
 " (영상 코덱: %@)" = " (video codec: %@)";
@@ -136,3 +141,103 @@
 /* 상대 타임라인 모드 */
 "길이 비율로 재생바 맞추기" = "Scale timeline to each length";
 "켜면 각 영상이 자기 길이의 같은 비율로 재생되어 모두 함께 끝납니다" = "When on, each video plays at the same relative position and they all end together";
+
+/* 프로젝트 파일 */
+"제목 없음" = "Untitled";
+"현재 작업" = "Current workspace";
+"새 프로젝트" = "New Project";
+"프로젝트 열기" = "Open Project";
+"프로젝트 열기…" = "Open Project…";
+"프로젝트 저장" = "Save Project";
+"프로젝트를 다른 이름으로 저장…" = "Save Project As…";
+"변경 사항을 저장하시겠습니까?" = "Do you want to save your changes?";
+"%@의 저장되지 않은 변경 사항이 있습니다." = "%@ has unsaved changes.";
+"저장" = "Save";
+"저장하지 않음" = "Don't Save";
+"취소" = "Cancel";
+"프로젝트 저장됨: %@" = "Project saved: %@";
+"프로젝트를 열 수 없습니다" = "Could not open the project";
+"프로젝트를 저장할 수 없습니다" = "Could not save the project";
+"지원하지 않는 프로젝트 버전입니다 (버전 %lld)" = "This project version isn't supported (version %lld)";
+"프로젝트에 중복된 영상 정보가 있습니다" = "The project contains duplicate video information";
+"프로젝트 설정이 올바르지 않습니다" = "The project settings are invalid";
+"프로젝트 파일 %lld개를 찾을 수 없습니다" = "%lld project files could not be found";
+"파일이 들어 있는 폴더를 선택하면 이름과 크기를 기준으로 다시 연결합니다." = "Choose a folder containing the files to reconnect them by name and size.";
+"폴더 선택…" = "Choose Folder…";
+"찾은 파일만 열기" = "Open Available Files";
+"다시 연결" = "Reconnect";
+"찾지 못한 파일 %lld개를 제외하고 열었습니다" = "Opened without %lld missing files";
+
+/* 선택 영상 Inspector */
+"사이드바" = "Sidebar";
+"사이드바 (P)" = "Sidebar (P)";
+"선택 영상" = "Selected Video";
+"설정할 영상을 선택하세요" = "Select a video to configure";
+"Finder에서 보기" = "Show in Finder";
+"미디어 정보" = "Media Info";
+"형식" = "Format";
+"해상도" = "Resolution";
+"프레임률" = "Frame Rate";
+"길이" = "Duration";
+"파일 크기" = "File Size";
+"오디오" = "Audio";
+"이 영상만 듣기" = "Solo This Video";
+"오디오 솔로 해제" = "Turn Off Audio Solo";
+"화면" = "Picture";
+"확대" = "Zoom";
+
+/* Audio & subtitle tracks */
+"재생할 소리" = "Audio to Play";
+"소리 정보를 불러오는 중…" = "Loading audio options…";
+"이 영상에는 소리가 없습니다" = "This video has no audio";
+"표시할 자막" = "Subtitles to Show";
+"자막 정보를 불러오는 중…" = "Loading subtitles…";
+"이 영상에는 사용할 수 있는 자막이 없습니다" = "No subtitles are available for this video";
+"끄기" = "Off";
+"자동 선택" = "Automatic";
+"별도 파일 자막 · %@" = "Subtitle File · %@";
+"영상에 포함된 자막 · %@" = "Built-in Subtitle · %@";
+"전체 자막이 꺼져 있습니다" = "Subtitles are hidden for all videos";
+"전체 자막 켜기" = "Show All Subtitles";
+"트랙 %lld" = "Track %lld";
+"자막은 현재 영상 내보내기에 포함되지 않습니다" = "Subtitles are not currently included in video exports";
+"자막 크기" = "Subtitle Size";
+"기본 크기" = "Default Size";
+
+/* Direct playback & controls */
+"재생 호환 처리 중: %@" = "Preparing for compatible playback: %@";
+"%@: 기본 재생 엔진에서 열 수 없어 호환 처리합니다" = "%@: the macOS playback engine cannot open this file, so Tilo is preparing a compatible copy";
+"현재 macOS 재생 엔진에서 직접 재생할 수 없습니다" = "The current macOS playback engine cannot play this file directly";
+"지원하지 않는 파일 원본 직접 재생" = "Play unsupported originals directly";
+"실험 기능 · MKV, WebM 등의 원본을 libmpv로 열고 실패할 때만 호환 변환합니다" = "Experimental · Opens originals such as MKV and WebM with libmpv, then converts only if direct playback fails";
+"재생 엔진" = "Playback Engine";
+"원본 파일을 변환 없이 직접 재생합니다: %@" = "Playing original without conversion: %@";
+"컨트롤 막대 숨기기 / 보기" = "Hide / Show Controls";
+"컨트롤 막대 바로 숨기기 (H)" = "Hide Controls Now (H)";
+"컨트롤 자동 숨김" = "Auto-hide Controls";
+"%.1f초" = "%.1f sec";
+
+/* Playlist replacement */
+"선택 영상 교체" = "Replace Selected Video";
+"먼저 모자이크에서 교체할 영상을 선택하세요" = "Select the mosaic video you want to replace first";
+"선택한 영상은 이미 교체 중입니다" = "The selected video is already being replaced";
+"이 영상은 이미 모자이크에서 재생 중입니다" = "This video is already playing in the mosaic";
+"선택 영상을 교체하는 중: %@" = "Replacing selected video: %@";
+"선택 영상 교체됨: %@" = "Selected video replaced: %@";
+"교체할 파일을 재생할 수 없어 기존 영상을 유지합니다" = "The replacement file cannot be played, so the current video was kept";
+"%@ 변환 실패%@ — 기존 영상을 유지합니다" = "%@ conversion failed%@ — the current video was kept";
+
+/* 모자이크 영상 내보내기 */
+"모자이크 영상 내보내기" = "Export Mosaic Video";
+"모자이크 영상 내보내기…" = "Export Mosaic Video…";
+"영상 내보내기 취소" = "Cancel Video Export";
+"모자이크 영상 내보내는 중: %lld%%" = "Exporting mosaic video: %lld%%";
+"영상 내보내기에는 ffmpeg가 필요합니다" = "Video export requires ffmpeg";
+"내보낼 영상이나 레이아웃 정보가 없습니다" = "There are no videos or layout information to export";
+"내보낼 레이아웃 정보가 없습니다" = "There is no layout information to export";
+"재생 준비가 끝난 영상이 없습니다" = "No videos are ready for export";
+"영상 내보내기가 취소되었습니다" = "Video export was cancelled";
+"모자이크 영상을 만들 수 없습니다" = "Could not create the mosaic video";
+"내보낸 파일을 저장할 수 없습니다" = "Could not save the exported file";
+"모자이크 영상 저장됨: %@" = "Mosaic video saved: %@";
+"영상 내보내기 실패 — 로그: %@" = "Video export failed — log: %@";

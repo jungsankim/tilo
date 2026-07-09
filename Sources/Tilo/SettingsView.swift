@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("loopDefault") private var loopDefault = true
     @AppStorage("seekStep") private var seekStep = 5
     @AppStorage("restoreSessionEnabled") private var restoreSessionEnabled = true
+    @AppStorage("controlsHideDelay") private var controlsHideDelay = 1.5
+    @AppStorage("experimentalDirectPlayback") private var experimentalDirectPlayback = true
     @State private var cacheSize: Int64 = 0
 
     var body: some View {
@@ -19,6 +21,26 @@ struct SettingsView: View {
                         Text("\(step)초").tag(step)
                     }
                 }
+                LabeledContent("컨트롤 자동 숨김") {
+                    HStack(spacing: 8) {
+                        Slider(value: $controlsHideDelay, in: 0.5...5, step: 0.5)
+                            .frame(width: 120)
+                        Text(String.localizedStringWithFormat(
+                            String(localized: "%.1f초"),
+                            controlsHideDelay
+                        ))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 42, alignment: .trailing)
+                    }
+                }
+            }
+
+            Section {
+                Toggle("지원하지 않는 파일 원본 직접 재생", isOn: $experimentalDirectPlayback)
+                Text("실험 기능 · MKV, WebM 등의 원본을 libmpv로 열고 실패할 때만 호환 변환합니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

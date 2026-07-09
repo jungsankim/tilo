@@ -7,9 +7,19 @@ struct SubtitleCue {
 }
 
 enum SubtitleLoader {
+    struct LoadedSubtitle {
+        let url: URL
+        let cues: [SubtitleCue]
+    }
+
     /// 영상과 같은 이름의 .srt/.smi 파일을 찾는다.
     /// movie.mp4 → movie.srt 우선, movie.ko.srt처럼 언어 코드가 붙어도 인식.
     static func load(for videoURL: URL) -> [SubtitleCue] {
+        loadWithSource(for: videoURL)?.cues ?? []
+    }
+
+    /// 선택 UI에 실제 외부 자막 파일 이름도 보여줄 수 있도록 출처를 함께 반환한다.
+    static func loadWithSource(for videoURL: URL) -> LoadedSubtitle? {
         let folder = videoURL.deletingLastPathComponent()
         let baseName = videoURL.deletingPathExtension().lastPathComponent
         let contents = (try? FileManager.default.contentsOfDirectory(
@@ -19,15 +29,18 @@ enum SubtitleLoader {
         )) ?? []
         let candidates = contents
             .filter { ["srt", "smi"].contains($0.pathExtension.lowercased()) }
-            .filter { $0.lastPathComponent.hasPrefix(baseName) }
+            .filter {
+                let stem = $0.deletingPathExtension().lastPathComponent
+                return stem == baseName || stem.hasPrefix(baseName + ".")
+            }
             .sorted { $0.lastPathComponent.count < $1.lastPathComponent.count }
 
         for url in candidates {
             guard let text = readText(url) else { continue }
             let cues = url.pathExtension.lowercased() == "smi" ? parseSMI(text) : parseSRT(text)
-            if !cues.isEmpty { return cues }
+            if !cues.isEmpty { return LoadedSubtitle(url: url, cues: cues) }
         }
-        return []
+        return nil
     }
 
     /// 한국어 자막은 CP949 인코딩이 흔해서 UTF-8 → UTF-16 → CP949 순으로 시도

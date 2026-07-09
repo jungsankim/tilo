@@ -5,8 +5,11 @@ struct VideoCell: View {
     @ObservedObject var item: VideoItem
     let fill: Bool
     var isSoloed = false
+    var isSelected = false
     var showSubtitles = true
+    var subtitleScale: Double = 1
     let onRemove: () -> Void
+    var onSelect: (() -> Void)?
     var onSolo: (() -> Void)?
     var onZoom: (() -> Void)?
     var onRotate: (() -> Void)?
@@ -31,14 +34,27 @@ struct VideoCell: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            PlayerLayerView(
-                player: item.player,
-                fill: fill,
-                rotationQuarters: item.rotationQuarters,
-                zoomScale: item.zoomScale,
-                panOffset: item.panOffset,
-                onZoom: { onScrollZoom?($0, $1) }
-            )
+            Group {
+                if let engine = item.mpvEngine {
+                    MPVSurfaceView(
+                        engine: engine,
+                        fill: fill,
+                        rotationQuarters: item.rotationQuarters,
+                        zoomScale: item.zoomScale,
+                        panOffset: item.panOffset,
+                        onZoom: { onScrollZoom?($0, $1) }
+                    )
+                } else {
+                    PlayerLayerView(
+                        player: item.player,
+                        fill: fill,
+                        rotationQuarters: item.rotationQuarters,
+                        zoomScale: item.zoomScale,
+                        panOffset: item.panOffset,
+                        onZoom: { onScrollZoom?($0, $1) }
+                    )
+                }
+            }
                 .background(Color.black)
                 .background(
                     GeometryReader { geo in
@@ -50,7 +66,7 @@ struct VideoCell: View {
                 .gesture(
                     TapGesture(count: 2)
                         .onEnded { onZoom?() }
-                        .exclusively(before: TapGesture().onEnded { onSolo?() })
+                        .exclusively(before: TapGesture().onEnded { onSelect?() })
                 )
                 // Option+드래그로 확대된 영상의 보이는 영역을 이동 (자리 교환과 분리)
                 .highPriorityGesture(
@@ -74,9 +90,11 @@ struct VideoCell: View {
                         .foregroundStyle(.yellow)
                     Group {
                         if PlayerManager.needsRemux(item.sourceURL) {
-                            Text("변환 없이는 재생할 수 없는 형식입니다 (\(item.sourceURL.pathExtension.uppercased()))")
+                            Text("현재 macOS 재생 엔진에서 직접 재생할 수 없습니다")
+                        } else if Remuxer.ffmpegURL == nil {
+                            Text("호환 변환 도구가 없어 재생할 수 없습니다")
                         } else {
-                            Text("재생할 수 없는 파일")
+                            Text("파일이 손상됐거나 지원되지 않는 스트림입니다")
                         }
                     }
                     .font(.caption)
@@ -102,6 +120,15 @@ struct VideoCell: View {
                         helpText: item.isMuted ? "음소거 해제" : "음소거"
                     ) {
                         item.isMuted.toggle()
+                    }
+                    ControlIconButton(
+                        icon: "headphones",
+                        active: isSoloed,
+                        diameter: 26,
+                        fontSize: 12,
+                        helpText: isSoloed ? "오디오 솔로 해제" : "이 영상만 듣기"
+                    ) {
+                        onSolo?()
                     }
                     ControlIconButton(
                         icon: "ellipsis",
@@ -148,9 +175,9 @@ struct VideoCell: View {
         .overlay(alignment: .bottom) {
             if showSubtitles, !item.loadFailed, let subtitle = item.currentSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 14 * subtitleScale, weight: .medium))
                     .multilineTextAlignment(.center)
-                    .lineLimit(3)
+                    .lineLimit(4)
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.9), radius: 1.5)
                     .padding(.horizontal, 8)
@@ -195,8 +222,11 @@ struct VideoCell: View {
             }
         }
         .overlay {
-            if isSoloed {
-                Rectangle().strokeBorder(Color.accentColor, lineWidth: 2)
+            if isSelected || isSoloed {
+                Rectangle().strokeBorder(
+                    isSelected ? Color.accentColor : Color.orange,
+                    lineWidth: 2
+                )
             }
         }
         .animation(.easeInOut(duration: 0.15), value: showOverlay)
@@ -287,13 +317,23 @@ struct PlayerLayerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PlayerNSView, context: Context) {
-        nsView.playerLayer.player = player
-        nsView.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect
-        nsView.rotationQuarters = rotationQuarters
-        nsView.zoomScale = zoomScale
-        nsView.panOffset = panOffset
+        if nsView.playerLayer.player !== player {
+            nsView.playerLayer.player = player
+        }
+        let gravity: AVLayerVideoGravity = fill ? .resizeAspectFill : .resizeAspect
+        if nsView.playerLayer.videoGravity != gravity {
+            nsView.playerLayer.videoGravity = gravity
+        }
+        let layoutChanged = nsView.rotationQuarters != rotationQuarters
+            || nsView.zoomScale != zoomScale
+            || nsView.panOffset != panOffset
+        if layoutChanged {
+            nsView.rotationQuarters = rotationQuarters
+            nsView.zoomScale = zoomScale
+            nsView.panOffset = panOffset
+            nsView.needsLayout = true
+        }
         nsView.onZoom = onZoom
-        nsView.needsLayout = true
     }
 }
 
