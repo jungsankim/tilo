@@ -323,28 +323,59 @@ final class MPVPlaybackEngine {
         setProperty("video-pan-y", Double(panOffset.height) * 2)
     }
 
+    /// 메인 스레드를 막지 않는 종료. 렌더 스레드(=메인)가 libmpv API의 반환을
+    /// 기다리면 데드락이 될 수 있다고 render.h가 경고하므로, 코어를 기다리는
+    /// 단계(이벤트 스레드 합류, 명령 큐 배수, core 파괴)는 전부 백그라운드에서
+    /// 수행한다. deinit에서 불려도 안전하도록 자원을 지역 변수로 옮겨 잡는다.
     func shutdown() {
         guard !isShuttingDown else { return }
         isShuttingDown = true
 
-        // surface가 한 번도 필요하지 않았던 core의 종료 과정에서 AppKit view를
-        // 새로 만들지 않는다.
-        let stopRenderer = { [weak self] in self?.storedSurfaceView?.shutdownRenderer() }
-        if Thread.isMainThread {
-            stopRenderer()
-        } else {
-            DispatchQueue.main.sync(execute: stopRenderer)
-        }
+        // quit을 비동기로 먼저 보내 디먹서/디코더가 블로킹 I/O(NAS·외장하드)에서
+        // 즉시 빠져나오게 한다. 이후 단계들의 대기 시간이 크게 줄어든다.
+        if let handle { Self.sendAsyncCommand(["quit"], to: handle) }
 
-        eventPump?.owner = nil
-        eventPump?.stopAndWait()
+        let pump = eventPump
         eventPump = nil
-        // 종료 플래그가 설정되기 전에 큐에 들어간 제어 작업도 모두 빠져나온
-        // 뒤에만 core를 파괴한다. 각 작업은 아래에서 종료 플래그를 재확인한다.
-        commandQueue.sync {}
-        if let handle {
-            mpv_terminate_destroy(handle)
-            self.handle = nil
+        pump?.owner = nil
+        let queue = commandQueue
+        let handle = self.handle
+        self.handle = nil
+        let surface = storedSurfaceView
+        storedSurfaceView = nil
+
+        // render context는 draw()와 같은 메인 스레드에서 해제해야 동시 호출이
+        // 없다. 해제가 끝난 뒤에만 core를 파괴하도록 백그라운드 단계를 그 뒤에
+        // 이어 붙인다. surface가 한 번도 필요하지 않았던 core는 view를 새로
+        // 만들지 않는다.
+        let finish = {
+            surface?.shutdownRenderer()
+            DispatchQueue.global(qos: .userInitiated).async {
+                pump?.stopAndWait()
+                // 종료 플래그가 설정되기 전에 큐에 들어간 제어 작업도 모두
+                // 빠져나온 뒤에만 core를 파괴한다.
+                queue.sync {}
+                if let handle { mpv_terminate_destroy(handle) }
+            }
+        }
+        if Thread.isMainThread {
+            finish()
+        } else {
+            DispatchQueue.main.async(execute: finish)
+        }
+    }
+
+    private static func sendAsyncCommand(_ arguments: [String], to handle: OpaquePointer) {
+        let storage = arguments.map { argument in argument.withCString { strdup($0) } }
+        defer {
+            storage.forEach { pointer in if let pointer { free(pointer) } }
+        }
+        var pointers: [UnsafePointer<CChar>?] = storage.map { pointer in
+            pointer.map { UnsafePointer<CChar>($0) }
+        }
+        pointers.append(nil)
+        pointers.withUnsafeMutableBufferPointer { buffer in
+            _ = mpv_command_async(handle, 0, buffer.baseAddress)
         }
     }
 
