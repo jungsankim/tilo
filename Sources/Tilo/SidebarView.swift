@@ -105,7 +105,7 @@ private struct SelectedVideoInspector: View {
 
                 inspectorSection("미디어 정보") {
                     LabeledContent("형식", value: item.sourceURL.pathExtension.uppercased())
-                    LabeledContent("재생 엔진", value: item.backendKind.displayName)
+                    LabeledContent("재생 방식", value: item.backendKind.displayName)
                     LabeledContent("해상도", value: resolutionLabel)
                     LabeledContent("프레임률", value: frameRateLabel)
                     LabeledContent("길이", value: item.mediaReady ? timeString(item.durationSeconds) : "—")

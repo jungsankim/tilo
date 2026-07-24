@@ -183,6 +183,9 @@
 "오디오" = "Audio";
 "이 영상만 듣기" = "Solo This Video";
 "오디오 솔로 해제" = "Turn Off Audio Solo";
+"이 영상만 구간반복: 시작점 설정" = "Loop This Video: Set Start Point";
+"이 영상만 구간반복: 끝점 설정" = "Loop This Video: Set End Point";
+"이 영상 구간반복 해제" = "Clear This Video's A-B Loop";
 "화면" = "Picture";
 "확대" = "Zoom";
 
@@ -241,3 +244,18 @@
 "내보낸 파일을 저장할 수 없습니다" = "Could not save the exported file";
 "모자이크 영상 저장됨: %@" = "Mosaic video saved: %@";
 "영상 내보내기 실패 — 로그: %@" = "Video export failed — log: %@";
+
+/* UI states and plain-language labels */
+"동영상 준비 중" = "Preparing Video";
+"원본 재생 가능 여부를 확인하고 있습니다" = "Checking whether the original can be played directly";
+"호환 재생용 파일을 준비하고 있습니다" = "Preparing a compatible playback copy";
+"원본 재생 가능 여부 확인 중: %@" = "Checking original playback: %@";
+"외 %d개 파일" = "%d more files";
+"지원하지 않는 형식도 변환 없이 열기" = "Open unsupported formats without conversion";
+"실험 기능 · MKV, WebM 같은 파일을 변환 없이 열고, 실패할 때만 호환 변환합니다" = "Experimental · Opens files such as MKV and WebM without conversion, and creates a compatible copy only if needed";
+"재생 방식" = "Playback Method";
+"기본 재생" = "Standard Playback";
+"원본 직접 재생" = "Direct Original Playback";
+"화면" = "On Screen";
+"이 파일은 기본 재생 방식으로 열 수 없습니다" = "This file cannot be opened with standard playback";
+"%@: 기본 재생으로 열 수 없어 호환 재생용 파일을 준비합니다" = "%@: cannot be opened with standard playback, so Tilo is preparing a compatible copy";

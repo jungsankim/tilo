@@ -37,8 +37,8 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("지원하지 않는 파일 원본 직접 재생", isOn: $experimentalDirectPlayback)
-                Text("실험 기능 · MKV, WebM 등의 원본을 libmpv로 열고 실패할 때만 호환 변환합니다")
+                Toggle("지원하지 않는 형식도 변환 없이 열기", isOn: $experimentalDirectPlayback)
+                Text("실험 기능 · MKV, WebM 같은 파일을 변환 없이 열고, 실패할 때만 호환 변환합니다")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

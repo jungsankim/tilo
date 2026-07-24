@@ -16,6 +16,9 @@ struct ContentView: View {
     @State private var dropTargeted = false
     @State private var showShortcuts = false
     @State private var hideTimer = AutoHideTimer()
+    /// 전체화면에서는 컨트롤 바를 화면 안 오버레이로, 창 모드에서는 영상
+    /// 아래 고정 바로 배치한다 (오버레이가 개별 시크바를 가리지 않도록).
+    @State private var isFullScreen = false
 
     /// 일시정지 중이거나 영상이 없거나 컨트롤 바 위에 마우스가 있으면 숨기지 않는다
     private var showControls: Bool {
@@ -26,17 +29,27 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 if manager.items.isEmpty {
-                    emptyState
+                    if manager.preparingFileNames.isEmpty {
+                        emptyState
+                    } else {
+                        preparationState
+                    }
                 } else {
                     videoGrid
                 }
-                controlBar
-                    .opacity(showControls ? 1 : 0)
-                    .allowsHitTesting(showControls)
-                    .animation(.easeInOut(duration: 0.25), value: showControls)
-                    .onHover { overControls = $0 }
+                // 전체화면에서만 화면 안 오버레이로 띄운다. 창 모드에서는 아래
+                // 고정 바를 쓰므로 개별 시크바를 가리지 않는다.
+                if !manager.items.isEmpty, isFullScreen {
+                    controlBar
+                        .opacity(showControls ? 1 : 0)
+                        .allowsHitTesting(showControls)
+                        .animation(.easeInOut(duration: 0.25), value: showControls)
+                        .onHover { overControls = $0 }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .onContinuousHover { _ in bumpActivity() }
             .overlay(alignment: .top) {
@@ -50,6 +63,14 @@ struct ContentView: View {
                             .map { "\(URL(fileURLWithPath: $0.key).lastPathComponent) \($0.value)%" }
                             .joined(separator: ", ")
                         toast(String(localized: "재생 호환 처리 중: \(status)"), systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    if !manager.items.isEmpty,
+                       manager.remuxing.isEmpty,
+                       let name = manager.preparingFileNames.first {
+                        toast(
+                            String(localized: "원본 재생 가능 여부 확인 중: \(name)"),
+                            systemImage: "hourglass"
+                        )
                     }
                     if let notice = manager.notice {
                         toast(notice, systemImage: "exclamationmark.triangle")
@@ -66,6 +87,12 @@ struct ContentView: View {
                         .opacity(showControls ? 1 : 0)
                         .animation(.easeInOut(duration: 0.2), value: showControls)
                 }
+            }
+
+            // 고정 바는 자동 숨김 없이 항상 표시하되, H로 잠시 숨길 수는 있다
+            if !manager.items.isEmpty, !isFullScreen, !controlsManuallyHidden {
+                dockedControlBar
+            }
             }
 
             if playlistVisible {
@@ -88,6 +115,15 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: showShortcuts)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            isFullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            isFullScreen = false
+        }
+        .onAppear {
+            isFullScreen = NSApp.windows.contains { $0.styleMask.contains(.fullScreen) }
+        }
         .onChange(of: manager.isPlaying) { playing in
             if playing { scheduleHide() }
         }
@@ -329,6 +365,69 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var preparationState: some View {
+        let name = manager.preparingFileNames.first ?? ""
+        let conversion = manager.remuxing
+            .sorted { $0.key < $1.key }
+            .first
+
+        return VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.06))
+                    .frame(width: 72, height: 72)
+                ProgressView()
+                    .controlSize(.large)
+            }
+
+            VStack(spacing: 7) {
+                Text("동영상 준비 중")
+                    .font(.title3.bold())
+                Text(name)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: 360)
+                if conversion == nil {
+                    Text("원본 재생 가능 여부를 확인하고 있습니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("호환 재생용 파일을 준비하고 있습니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let conversion {
+                ProgressView(value: Double(conversion.value), total: 100)
+                    .frame(width: 260)
+                Text("\(conversion.value)%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            if manager.preparingFileNames.count > 1 {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "외 %d개 파일"),
+                    manager.preparingFileNames.count - 1
+                ))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+    }
+
     private var isZoomed: Bool { manager.zoomedItemID != nil }
 
     /// 메뉴에 넣기 애매한 단축키만 보이지 않는 버튼으로 등록
@@ -452,7 +551,9 @@ struct ContentView: View {
                         onResetReframe: {
                             item.resetReframe()
                             manager.markProjectEdited()
-                        }
+                        },
+                        onSeek: { manager.seekIndividually(item, to: $0) },
+                        onCycleAB: { manager.cycleABLoop(item) }
                     )
                     .onDrag {
                         manager.draggingItemID = item.id
@@ -487,7 +588,28 @@ struct ContentView: View {
         Divider().frame(height: 18).padding(.horizontal, 3)
     }
 
+    /// 전체화면: 화면 안에 떠 있는 오버레이 (자동 숨김)
     private var controlBar: some View {
+        controlBarContent(docked: false)
+            .frame(maxWidth: 720)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+    }
+
+    /// 창 모드: 영상 영역 아래에 고정된 바 (개별 시크바를 가리지 않는다)
+    private var dockedControlBar: some View {
+        controlBarContent(docked: true)
+            .frame(maxWidth: .infinity)
+            .background(.regularMaterial)
+            .overlay(alignment: .top) { Divider() }
+    }
+
+    private func controlBarContent(docked: Bool) -> some View {
         HStack(spacing: 2) {
             ControlIconButton(icon: "plus", helpText: "동영상 추가 (⌘O)") {
                 manager.openVideos()
@@ -555,26 +677,21 @@ struct ContentView: View {
 
             MoreButton(manager: manager)
 
-            ControlIconButton(
-                icon: "chevron.down",
-                diameter: 28,
-                fontSize: 11,
-                helpText: "컨트롤 막대 바로 숨기기 (H)"
-            ) {
-                hideControlsImmediately()
+            // 숨기기 버튼은 영상을 가리는 오버레이(전체화면)에서만 의미가 있다
+            if !docked {
+                ControlIconButton(
+                    icon: "chevron.down",
+                    diameter: 28,
+                    fontSize: 11,
+                    helpText: "컨트롤 막대 바로 숨기기 (H)"
+                ) {
+                    hideControlsImmediately()
+                }
+                .disabled(manager.items.isEmpty)
             }
-            .disabled(manager.items.isEmpty)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: 720)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
     }
 
     /// 컨트롤 바의 "더보기(•••)" — 가끔 쓰는 토글·동작을 글자 라벨로 모은다

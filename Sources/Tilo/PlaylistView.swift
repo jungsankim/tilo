@@ -150,37 +150,44 @@ private struct PlaylistRow: View {
 
             Spacer(minLength: 4)
 
-            if hovering {
-                if canReplace {
-                    Button(action: onReplace) {
-                        Image(systemName: "arrow.left.arrow.right")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("선택 영상 교체")
-                }
-                // 화면에 올리기/내리기
-                Button(action: onToggle) {
-                    Image(systemName: isOnStage ? "rectangle.badge.minus" : "rectangle.badge.plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(isOnStage ? LocalizedStringKey("화면에서 제거") : LocalizedStringKey("화면에 추가"))
-                // 이 항목만 목록에서 삭제
-                Button(action: onDelete) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("목록에서 제거")
-            } else if isOnStage {
-                Image(systemName: "play.fill")
-                    .font(.caption2)
+            if isOnStage {
+                Label("화면", systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
             }
+
+            Button(action: onToggle) {
+                Image(systemName: isOnStage ? "rectangle.badge.minus" : "rectangle.badge.plus")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isOnStage ? Color.accentColor : .secondary)
+            .help(isOnStage ? LocalizedStringKey("화면에서 제거") : LocalizedStringKey("화면에 추가"))
+            .accessibilityLabel(isOnStage ? "화면에서 제거" : "화면에 추가")
+
+            Menu {
+                if canReplace {
+                    Button("선택 영상 교체", action: onReplace)
+                }
+                Button(isOnStage ? "화면에서 제거" : "화면에 추가", action: onToggle)
+                Divider()
+                Button("목록에서 제거", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 18, height: 18)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("더보기")
+            .accessibilityLabel("더보기")
         }
         .padding(.horizontal, 10)
-        .frame(height: 30)
+        .frame(height: 34)
         .background(background, in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
         .padding(.horizontal, 6)

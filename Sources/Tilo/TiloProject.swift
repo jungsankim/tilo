@@ -51,6 +51,10 @@ struct TiloProject: Codable, Equatable {
                       && (video.subtitleTrackSelection.flatMap(
                           SubtitleTrackSelection.init(persistenceKey:)
                       ) != nil || video.subtitleTrackSelection == nil)
+                      && [video.abA, video.abB].compactMap({ $0 }).allSatisfy({
+                          $0.isFinite && (0...1).contains($0)
+                      })
+                      && (video.abA == nil || video.abB == nil || video.abA! < video.abB!)
               })
         else {
             throw TiloProjectError.invalidPlaybackState
@@ -96,6 +100,9 @@ struct ProjectVideo: Codable, Equatable {
     /// 이전 프로젝트와 호환되도록 선택 키를 optional 문자열로 보관한다.
     var subtitleTrackSelection: String? = nil
     var subtitleTrackReference: ProjectTrackReference? = nil
+    /// 개별 영상 A-B 구간반복 지점 (자기 길이의 비율). 이전 프로젝트에는 없다.
+    var abA: Double? = nil
+    var abB: Double? = nil
 }
 
 struct ProjectTrackReference: Codable, Equatable {

@@ -18,6 +18,10 @@ struct VideoCell: View {
     var onScrollZoom: ((CGFloat, CGPoint) -> Void)?
     var onPan: ((CGSize) -> Void)?
     var onResetReframe: (() -> Void)?
+    /// 개별 시크. 동기화 보정이 되돌리지 않도록 매니저가 시간 정렬과 함께 처리한다.
+    var onSeek: ((Double) -> Void)?
+    /// 개별 A-B 구간반복 토글 (한 번 = A, 두 번 = B + 반복, 세 번 = 해제)
+    var onCycleAB: (() -> Void)?
 
     /// 개별 시간 오프셋 한 번 누를 때 이동량(초)
     private let offsetStep = 0.1
@@ -90,7 +94,7 @@ struct VideoCell: View {
                         .foregroundStyle(.yellow)
                     Group {
                         if PlayerManager.needsRemux(item.sourceURL) {
-                            Text("현재 macOS 재생 엔진에서 직접 재생할 수 없습니다")
+                            Text("이 파일은 기본 재생 방식으로 열 수 없습니다")
                         } else if Remuxer.ffmpegURL == nil {
                             Text("호환 변환 도구가 없어 재생할 수 없습니다")
                         } else {
@@ -129,6 +133,17 @@ struct VideoCell: View {
                         helpText: isSoloed ? "오디오 솔로 해제" : "이 영상만 듣기"
                     ) {
                         onSolo?()
+                    }
+                    ControlIconButton(
+                        text: "AB",
+                        tint: item.abB != nil ? .accentColor : item.abA != nil ? .orange : nil,
+                        diameter: 26,
+                        fontSize: 12,
+                        helpText: item.abA == nil ? "이 영상만 구간반복: 시작점 설정"
+                            : item.abB == nil ? "이 영상만 구간반복: 끝점 설정"
+                            : "이 영상 구간반복 해제"
+                    ) {
+                        onCycleAB?()
                     }
                     ControlIconButton(
                         icon: "ellipsis",
@@ -194,15 +209,27 @@ struct VideoCell: View {
                     Slider(
                         value: Binding(
                             get: { item.progress },
-                            set: { item.seek(to: $0) }
+                            set: { seek(to: $0) }
                         ),
                         in: 0...1
                     ) { editing in
                         item.isScrubbing = editing
                         // 스크럽 중에는 키프레임 단위로 따라갔으므로 정밀 보정
-                        if !editing { item.seek(to: item.progress) }
+                        if !editing { seek(to: item.progress) }
                     }
-                    .controlSize(.mini)
+                    .controlSize(.small)
+                    .overlay {
+                        // 개별 A-B 구간반복 지점 표시
+                        GeometryReader { geo in
+                            ForEach([item.abA, item.abB].compactMap { $0 }, id: \.self) { mark in
+                                Rectangle()
+                                    .fill(Color.orange)
+                                    .frame(width: 2, height: 8)
+                                    .position(x: mark * geo.size.width, y: geo.size.height / 2)
+                            }
+                        }
+                        .allowsHitTesting(false)
+                    }
 
                     Text(timeString(item.progress * item.durationSeconds))
                         .font(.caption2.monospacedDigit())
@@ -244,6 +271,10 @@ struct VideoCell: View {
         .onContinuousHover { _ in
             if hovering { bump() }
         }
+    }
+
+    private func seek(to fraction: Double) {
+        if let onSeek { onSeek(fraction) } else { item.seek(to: fraction) }
     }
 
     private var offsetLabel: String {

@@ -9,8 +9,8 @@ enum PlaybackBackendKind: String, Codable, Equatable {
 
     var displayName: String {
         switch self {
-        case .avFoundation: return "macOS"
-        case .libmpv: return "libmpv"
+        case .avFoundation: return String(localized: "기본 재생")
+        case .libmpv: return String(localized: "원본 직접 재생")
         }
     }
 }
@@ -263,6 +263,18 @@ final class MPVPlaybackEngine {
 
     func setVolume(_ volume: Double) {
         setProperty("volume", min(max(volume, 0), 1) * 100)
+    }
+
+    /// mpv 네이티브 A-B 구간반복. nil이면 해제("no").
+    /// 주기적 감시보다 정확해서 B 지점을 지나치지 않고 프레임 단위로 되돌아간다.
+    func setABLoop(a: Double?, b: Double?) {
+        if let a, let b {
+            setProperty("ab-loop-a", a)
+            setProperty("ab-loop-b", b)
+        } else {
+            setProperty("ab-loop-a", "no")
+            setProperty("ab-loop-b", "no")
+        }
     }
 
     func setLooping(_ enabled: Bool) {

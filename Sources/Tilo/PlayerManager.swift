@@ -122,12 +122,46 @@ final class VideoItem: Identifiable, ObservableObject {
 
     /// 이 영상의 개별 재생 진행률 (0...1)
     @Published var progress: Double = 0
+    /// 개별 A-B 구간반복 지점 (이 영상 길이의 비율). 둘 다 설정되면 활성.
+    @Published var abA: Double? { didSet { applyEngineABLoop() } }
+    @Published var abB: Double? { didSet { applyEngineABLoop() } }
+
+    /// mpv는 네이티브 ab-loop가 프레임 단위로 반복을 처리하므로
+    /// 매니저의 주기 감시(0.25초 간격)가 손댈 필요가 없다.
+    var usesNativeABLoop: Bool { mpvEngine != nil && durationSeconds > 0 }
+
+    /// mpv 엔진에 A-B 구간을 초 단위로 반영한다. 복원 직후처럼 길이를 아직
+    /// 모르면 아무것도 하지 않고, 길이가 확정될 때 다시 불린다.
+    func applyEngineABLoop() {
+        guard let mpvEngine else { return }
+        let dur = durationSeconds
+        if let a = abA, let b = abB, dur > 0 {
+            mpvEngine.setABLoop(a: a * dur, b: b * dur)
+        } else {
+            mpvEngine.setABLoop(a: nil, b: nil)
+        }
+    }
     /// 코덱 미지원 등으로 재생에 실패하면 셀에 안내를 띄운다
     @Published var loadFailed = false
     @Published var mediaReady = false
     /// 현재 시각에 표시할 자막 (외부 파일과 내장 트랙 모두 같은 오버레이 사용)
     @Published var currentSubtitle: String?
     var isScrubbing = false
+    /// 시크 직후에는 이전 재생 시각 콜백이 늦게 도착해 진행률을 되돌릴 수 있어,
+    /// 이 시각까지는 시간 콜백의 진행률 갱신을 무시한다.
+    private var progressHoldUntil: TimeInterval = 0
+    private var lastSeekTarget: Double?
+    private var lastSeekAt: TimeInterval = 0
+
+    /// 최근에 요청한 시크가 아직 목표 지점에 도달하지 못한 상태.
+    /// 정밀 시크는 파일에 따라 1초 넘게 걸릴 수 있어, 그 사이 드리프트 보정이
+    /// 새 시크를 겹쳐 걸면 재생이 계속 끊기며 기어가는 것처럼 보인다.
+    var seekSettling: Bool {
+        guard let lastSeekTarget else { return false }
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - lastSeekAt < 2.0 else { return false }
+        return abs(currentTimeSeconds - lastSeekTarget) > 0.3
+    }
     var loopEnabled = true {
         didSet { mpvEngine?.setLooping(loopEnabled) }
     }
@@ -288,13 +322,16 @@ final class VideoItem: Identifiable, ObservableObject {
         engine.onDurationChanged = { [weak self] in
             guard let self else { return }
             self.syncMPVMetadata()
+            // 프로젝트 복원처럼 길이를 모른 채 A-B가 설정된 경우 지금 반영한다
+            self.applyEngineABLoop()
             self.durationChanged?()
         }
         engine.onMetadataChanged = { [weak self] in
             self?.syncMPVMetadata()
         }
         engine.onTimeChanged = { [weak self] seconds in
-            guard let self, self.progressActive, self.durationSeconds > 0 else { return }
+            guard let self, self.progressActive, self.acceptsTimeUpdates,
+                  self.durationSeconds > 0 else { return }
             let fraction = min(max(seconds / self.durationSeconds, 0), 1)
             if abs(fraction - self.progress) > 0.0001 { self.progress = fraction }
         }
@@ -382,6 +419,9 @@ final class VideoItem: Identifiable, ObservableObject {
     }
 
     func seek(toSeconds seconds: Double, exact: Bool = true) {
+        progressHoldUntil = Date().timeIntervalSinceReferenceDate + 0.35
+        lastSeekTarget = max(seconds, 0)
+        lastSeekAt = Date().timeIntervalSinceReferenceDate
         if let mpvEngine {
             mpvEngine.seek(to: seconds, exact: exact)
         } else {
@@ -422,6 +462,11 @@ final class VideoItem: Identifiable, ObservableObject {
         guard duration > 0 else { return }
         seek(toSeconds: fraction * duration, exact: !isScrubbing)
         progress = fraction
+    }
+
+    /// 스크럽 중이거나 방금 시크한 직후에는 시간 콜백이 진행률을 덮어쓰지 않게 한다
+    private var acceptsTimeUpdates: Bool {
+        !isScrubbing && Date().timeIntervalSinceReferenceDate >= progressHoldUntil
     }
 
     private func publishProgressNow() {
@@ -625,7 +670,7 @@ final class VideoItem: Identifiable, ObservableObject {
             if self.usesExternalSubtitles {
                 self.updateSubtitle(at: time.seconds)
             }
-            guard self.progressActive, !self.isScrubbing else { return }
+            guard self.progressActive, self.acceptsTimeUpdates else { return }
             let duration = self.durationSeconds
             guard duration > 0 else { return }
             let fraction = min(max(time.seconds / duration, 0), 1)
@@ -805,7 +850,16 @@ final class PlayerManager: ObservableObject {
     private var pendingRestoreFraction: Double?
     private var expectedRestoreIDs: Set<UUID> = []
     private var restoreSeekTask: Task<Void, Never>?
-    private var pendingSources: Set<URL> = []
+    /// 파일 선택 직후 네이티브/원본 직접 재생 가능 여부를 검사하는 동안
+    /// 빈 화면이 멈춘 것처럼 보이지 않도록 UI에 파일명을 공개한다.
+    @Published private(set) var preparingFileNames: [String] = []
+    private var pendingSources: Set<URL> = [] {
+        didSet {
+            preparingFileNames = pendingSources
+                .map(\.lastPathComponent)
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+    }
     /// 기존 타일을 유지한 채 새 파일을 준비 중인 교체 작업.
     @Published private var pendingReplacementIDs: Set<UUID> = []
     /// 새 프로젝트를 열면 이전 작업의 비동기 변환 결과를 무시하기 위한 토큰.
@@ -1167,7 +1221,9 @@ final class PlayerManager: ObservableObject {
                     audioTrackIndex: item.selectedAudioTrackIndex,
                     audioTrackReference: item.selectedAudioTrackReference,
                     subtitleTrackSelection: item.subtitleTrackSelection.persistenceKey,
-                    subtitleTrackReference: item.selectedSubtitleTrackReference
+                    subtitleTrackReference: item.selectedSubtitleTrackReference,
+                    abA: item.abA,
+                    abB: item.abB
                 )
             },
             playlist: playlist.map { projectReference(for: $0.url, relativeTo: projectURL) },
@@ -1487,7 +1543,7 @@ final class PlayerManager: ObservableObject {
                     )
                 }
             case .compatibilityProcessing:
-                self.showNotice(String(localized: "\(source.lastPathComponent): 기본 재생 엔진에서 열 수 없어 호환 처리합니다"))
+                self.showNotice(String(localized: "\(source.lastPathComponent): 기본 재생으로 열 수 없어 호환 재생용 파일을 준비합니다"))
                 self.convertAndStage(
                     source,
                     projectState: projectState,
@@ -1601,6 +1657,8 @@ final class PlayerManager: ObservableObject {
             item.rotationQuarters = ((state.rotationQuarters % 4) + 4) % 4
             item.zoomScale = CGFloat(min(max(state.zoomScale, 1), 6))
             item.panOffset = CGSize(width: state.panX, height: state.panY)
+            item.abA = state.abA
+            item.abB = state.abB
         }
         item.loopEnabled = loopEnabled
         item.subtitlesEnabled = subtitlesEnabled
@@ -1683,7 +1741,9 @@ final class PlayerManager: ObservableObject {
             audioTrackIndex: item.selectedAudioTrackIndex,
             audioTrackReference: item.selectedAudioTrackReference,
             subtitleTrackSelection: item.subtitleTrackSelection.persistenceKey,
-            subtitleTrackReference: item.selectedSubtitleTrackReference
+            subtitleTrackReference: item.selectedSubtitleTrackReference,
+            abA: item.abA,
+            abB: item.abB
         )
         showNotice(String(localized: "\(source.lastPathComponent): 직접 재생에 실패해 호환 변환을 시도합니다"))
         beginReplacement(
@@ -1829,7 +1889,7 @@ final class PlayerManager: ObservableObject {
                     self.showNotice(String(localized: "교체할 파일을 재생할 수 없어 기존 영상을 유지합니다"))
                 }
             case .compatibilityProcessing:
-                self.showNotice(String(localized: "\(source.lastPathComponent): 기본 재생 엔진에서 열 수 없어 호환 처리합니다"))
+                self.showNotice(String(localized: "\(source.lastPathComponent): 기본 재생으로 열 수 없어 호환 재생용 파일을 준비합니다"))
                 self.convertReplacement(request)
             case .unsupported:
                 self.finishReplacement(request)
@@ -2348,6 +2408,40 @@ final class PlayerManager: ObservableObject {
     }
 
     /// 개별 영상의 시간 오프셋을 delta초만큼 조정하고 그 영상만 다시 맞춘다
+    /// 개별 영상 구간반복: 한 번 = A 지점, 두 번 = B 지점 + 반복 시작, 세 번 = 해제.
+    /// 지점은 그 영상 자체 길이의 비율로 잡는다.
+    func cycleABLoop(_ item: VideoItem) {
+        let dur = item.durationSeconds
+        let fraction = dur > 0 ? min(max(item.currentTimeSeconds / dur, 0), 1) : 0
+        if item.abA == nil {
+            item.abA = fraction
+        } else if item.abB == nil {
+            if fraction > (item.abA ?? 0) + 0.005 {
+                item.abB = fraction
+            } else {
+                item.abA = nil
+            }
+        } else {
+            item.abA = nil
+            item.abB = nil
+        }
+        // 기준 영상이 구간반복을 시작·해제하면 타임라인 기준을 다시 고른다
+        updateTimeObserver()
+        markProjectEdited()
+    }
+
+    /// 개별 시크바: 그 영상만 지정 지점으로 옮긴다. 재생 중 드리프트 보정이
+    /// 1초 안에 원래 위치로 되돌리지 않도록, 시간 정렬(timeOffset)을 새 지점
+    /// 기준으로 함께 갱신해 이후에도 그 간격을 유지한 채 동기화한다.
+    func seekIndividually(_ item: VideoItem, to fraction: Double) {
+        item.seek(to: fraction)
+        let dur = item.durationSeconds
+        guard dur > 0 else { return }
+        let base = relativeTimeline ? progress * dur : progress * maxDuration
+        item.timeOffset = fraction * dur - base
+        markProjectEdited()
+    }
+
     func adjustOffset(_ item: VideoItem, by delta: Double) {
         item.timeOffset += delta
         let base = relativeTimeline ? progress * item.durationSeconds : progress * maxDuration
@@ -2571,7 +2665,10 @@ final class PlayerManager: ObservableObject {
     /// 끝까지 시간을 보고하므로 그 플레이어를 기준으로 삼는다.
     private func updateTimeObserver() {
         let readyItems = items.filter(\.mediaReady)
-        let masterCandidates = readyItems.isEmpty ? items : readyItems
+        let candidates = readyItems.isEmpty ? items : readyItems
+        // 개별 구간반복 중인 영상은 시간이 계속 되돌아가므로 타임라인 기준에서 제외
+        let steady = candidates.filter { $0.abA == nil || $0.abB == nil }
+        let masterCandidates = steady.isEmpty ? candidates : steady
         let master = masterCandidates.max { $0.durationSeconds < $1.durationSeconds }
         cachedMaxDuration = items.lazy.map(\.durationSeconds).max() ?? 0
 
@@ -2589,6 +2686,9 @@ final class PlayerManager: ObservableObject {
             var synchronizationTick = 0
             while !Task.isCancelled {
                 guard let self, let master, self.observedItem === master else { return }
+                if !self.isScrubbing, self.isPlaying {
+                    self.enforceItemABLoops()
+                }
                 if !self.isScrubbing {
                     let timelineTime = master.currentTimeSeconds - master.timeOffset
                     let timelineDuration = self.relativeTimeline
@@ -2619,6 +2719,19 @@ final class PlayerManager: ObservableObject {
         }
     }
 
+    /// 개별 영상 A-B 구간반복: B 지점을 지나면 A 지점으로 되돌린다.
+    /// mpv 영상은 네이티브 ab-loop가 처리하므로 AVFoundation 영상만 감시한다.
+    private func enforceItemABLoops() {
+        for item in items where item.mediaReady {
+            guard let a = item.abA, let b = item.abB, !item.usesNativeABLoop else { continue }
+            let dur = item.durationSeconds
+            guard dur > 0, !item.seekSettling else { continue }
+            if item.currentTimeSeconds / dur >= b {
+                item.seek(to: a)
+            }
+        }
+    }
+
     private func correctPlaybackDrift(
         relativeTo master: VideoItem,
         timelineTime: Double,
@@ -2629,10 +2742,17 @@ final class PlayerManager: ObservableObject {
         for item in items where item !== master && item.mediaReady {
             let duration = item.durationSeconds
             guard duration > 0 else { continue }
+            // 직전 시크가 아직 자리 잡는 중이면 보정 시크를 겹쳐 걸지 않는다.
+            // 매 틱마다 정밀 시크를 다시 걸면 영상이 재생되지 못하고 기어간다.
+            guard !item.seekSettling else { continue }
+            // 개별 구간반복 중인 영상은 의도적으로 타임라인과 어긋난 상태다
+            guard item.abA == nil || item.abB == nil else { continue }
 
             let target: Double
             if relativeTimeline {
                 target = timelineFraction * duration + item.timeOffset
+                // 개별 시크로 오프셋이 커져 범위를 벗어난 구간에서는 강제 이동하지 않는다
+                guard target >= 0, target < duration else { continue }
             } else {
                 target = timelineTime + item.timeOffset
                 // 더 짧은 영상이 먼저 끝나 독립적으로 반복되는 구간에서는
